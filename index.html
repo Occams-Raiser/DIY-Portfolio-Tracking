@@ -145,6 +145,8 @@
   table.pf thead tr.grp th.blank { border: none; }
   table.pf td { text-align: right; border-bottom: 1px solid #f0f0f0; }
   table.pf td.l { text-align: left; }
+  /* Fund names are cut off with "…" at about half their full width; the full name shows on hover. */
+  table.pf .fname { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
   table.pf td.gap, table.pf th.gap { width: 18px; padding: 0; border: none; }
   table.pf td.sep, table.pf th.sep { border-left: 1px solid #333; }
   table.pf tr.inactive td { color: #c4c4c4; }
@@ -164,6 +166,8 @@
   table.ed td { padding: 4px 6px; border-bottom: 1px solid #f2f2f2; }
   table.ed input[type="text"], table.ed input[type="number"] { padding: 6px 9px; font-size: 16px; }
   table.ed td.num input { text-align: right; }
+  table.ed select { width: 100%; padding: 6px 8px; font-size: 16px; border: 1.5px solid #ddd; border-radius: 8px; background: white; color: #1a1a1a; }
+  table.ed select:focus { outline: none; border-color: var(--orange); }
   table.ed .rm { background: none; border: none; color: #999; font-size: 18px; cursor: pointer; }
   table.ed .rm:hover { color: var(--red); }
   table.ed .err-cell { font-size: 12px; color: var(--red); }
@@ -508,6 +512,23 @@ async function refreshPrices(quiet) {
 ══════════════════════════════════════════════════════════════════════ */
 function normTicker(t) { return String(t || '').trim().toUpperCase().replace(/\./g, '-'); }
 
+// Asset classes, in display/sort order. Stored on each holding as assetClass (the label itself).
+const ASSET_CLASSES = [
+  'Equity US Broad', 'Equity US Large-cap', 'Equity US Small-cap', 'Equity EU Large-cap',
+  'Real estate', 'Absolute return', 'Crypto', 'Private equity', 'Early-stage', 'Bonds', 'Cash',
+];
+// Matches a typed/uploaded value to a class label, ignoring case, spaces and hyphens. '' if none.
+function matchAssetClass(v) {
+  const k = s => String(s || '').toLowerCase().replace(/[\s-]+/g, '');
+  const want = k(v);
+  return want ? (ASSET_CLASSES.find(c => k(c) === want) || null) : '';
+}
+function assetClassSelect(value) {
+  const opts = ['<option value="">—</option>'].concat(ASSET_CLASSES.map(c =>
+    `<option value="${escapeHtml(c)}"${c === value ? ' selected' : ''}>${escapeHtml(c)}</option>`));
+  return `<select class="f-class" onchange="markDirty()">${opts.join('')}</select>`;
+}
+
 // Value-weighted average of `field` over rows where both value and field are numbers.
 // Rows without the field are left out and the rest reweighted.
 function weightedAvg(rows, field) {
@@ -529,6 +550,7 @@ function computePortfolio(assetMap, priceMap) {
     const price = p && typeof p.price === 'number' ? p.price : null;
     return {
       id: a.id, order: a.order ?? 0, ticker: t,
+      assetClass: a.assetClass || '',
       name: a.name || (p && p.name) || t,
       active: a.active !== false,
       units, price,
@@ -544,6 +566,7 @@ function computePortfolio(assetMap, priceMap) {
   });
   const illiquid = list.filter(a => a.kind === 'illiquid').sort(byOrder).map(a => ({
     id: a.id, order: a.order ?? 0, name: a.name,
+    assetClass: a.assetClass || '',
     value: Number(a.value) || 0,                 // already $ thousands
     ret: typeof a.assumedReturn === 'number' ? a.assumedReturn : null,
   }));
@@ -631,14 +654,15 @@ function dataBar(x, max) {
 /* ══════════════════════════════════════════════════════════════════════
    PORTFOLIO TAB
 ══════════════════════════════════════════════════════════════════════ */
-const SORT_COLS = ['name', 'ticker', 'price', 'asOf', 'dayChg', 'tr5y', 'ytd', 'value', 'pctLiq'];
 function setSort(key) {
   if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-  else { sortKey = key; sortDir = ['name', 'ticker'].includes(key) ? 'asc' : 'desc'; }
+  else { sortKey = key; sortDir = ['assetClass', 'name', 'ticker'].includes(key) ? 'asc' : 'desc'; }
   renderPortfolio();
 }
 function compareRows(a, b) {
-  const av = a[sortKey], bv = b[sortKey];
+  // Asset classes sort in list order (Equity US Broad … Cash), not alphabetically.
+  const val = r => sortKey === 'assetClass' ? (r.assetClass ? ASSET_CLASSES.indexOf(r.assetClass) : null) : r[sortKey];
+  const av = val(a), bv = val(b);
   const an = av === null || av === undefined || av === '', bn = bv === null || bv === undefined || bv === '';
   if (an || bn) return an && bn ? 0 : an ? 1 : -1;     // blanks always last
   const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).toLowerCase().localeCompare(String(bv).toLowerCase());
@@ -689,9 +713,9 @@ function renderPortfolio() {
   const bg = c => c ? ` style="background:${c}"` : '';
 
   let h = '<thead>';
-  h += '<tr class="grp"><th class="blank" colspan="7"></th><th class="blank gap"></th>' +
+  h += '<tr class="grp"><th class="blank" colspan="8"></th><th class="blank gap"></th>' +
        '<th colspan="3">Liquid assets</th><th colspan="3">All assets</th><th class="blank"></th></tr>';
-  h += '<tr>' + sortTh('name', 'Fund name', 'l') + sortTh('ticker', '', 'l') + sortTh('price', 'Price') + sortTh('asOf', 'As of date') +
+  h += '<tr>' + sortTh('assetClass', 'Asset class', 'l') + sortTh('name', 'Fund name', 'l fname') + sortTh('ticker', '', 'l') + sortTh('price', 'Price') + sortTh('asOf', 'As of date') +
        sortTh('dayChg', 'Day chg') + `<th class="sep sortable" onclick="setSort('tr5y')">5-year<br>total<br>return<span class="sort-arrow">${sortKey === 'tr5y' ? (sortDir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>` +
        '<th></th><th class="gap"></th>' +
        sortTh('ytd', 'YTD Tot ret') + sortTh('value', 'Current $K<br>value') + sortTh('pctLiq', '% of<br>liquid<br>assets') +
@@ -700,7 +724,8 @@ function renderPortfolio() {
   rows.forEach(r => {
     const noPrice = r.value === null;
     h += `<tr class="${r.active ? '' : 'inactive'}">` +
-      `<td class="l"><span class="bank">🏛</span>${escapeHtml(r.name)}</td>` +
+      `<td class="l">${escapeHtml(r.assetClass)}</td>` +
+      `<td class="l fname" title="${escapeHtml(r.name)}"><span class="bank">🏛</span>${escapeHtml(r.name)}</td>` +
       `<td class="l">${escapeHtml(r.ticker)}</td>` +
       (noPrice ? `<td class="nodata" colspan="3">no price</td>` :
         `<td>${fmtNum(r.price, 2)}</td><td title="${r.source === 'yahoo' ? 'Latest quote from Yahoo Finance' : 'End-of-day close from Tiingo'}">${escapeHtml(fmtAsOf(r))}</td>` +
@@ -718,20 +743,20 @@ function renderPortfolio() {
   // Liquid totals — Liquid-assets columns only. The All-assets columns are left blank here:
   // the funds are already itemized above, so that column reads funds + illiquid assets = the
   // bold All assets total at the bottom (as in the household spreadsheet).
-  h += '<tr class="total"><td class="l" colspan="5"></td>' +
+  h += '<tr class="total"><td class="l" colspan="6"></td>' +
        `<td class="sep">${fmtPct(t.liq5y)}</td><td></td><td class="gap"></td>` +
        `<td>${fmtPct(t.liqYtd)}</td><td>${fmtNum(t.liqValue, 0)}</td><td>${t.liqValue ? '100%' : ''}</td>` +
        '<td class="part" colspan="3"></td><td class="l part"></td></tr>';
 
   // Illiquid rows
   illiquid.forEach(r => {
-    h += '<tr class="illiquid"><td class="l" colspan="5"></td><td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>' +
+    h += `<tr class="illiquid"><td class="l">${escapeHtml(r.assetClass)}</td><td class="l" colspan="5"></td><td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>` +
       `<td class="assumed">${fmtPct(r.ret)}</td><td>${fmtNum(r.value, 0)}</td>` +
       `<td${bg(cAll(r.pctAll))}>${fmtPct(r.pctAll)}</td><td class="l">${escapeHtml(r.name)}</td></tr>`;
   });
 
   // Grand total (liquid + illiquid)
-  h += '<tr class="total"><td class="l" colspan="5" style="border-top:none"></td><td class="sep" style="border-top:none"></td><td style="border-top:none"></td><td class="gap" style="border-top:none"></td><td colspan="3" style="border-top:none"></td>' +
+  h += '<tr class="total"><td class="l" colspan="6" style="border-top:none"></td><td class="sep" style="border-top:none"></td><td style="border-top:none"></td><td class="gap" style="border-top:none"></td><td colspan="3" style="border-top:none"></td>' +
        `<td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 0)}</td><td>${t.allValue ? '100%' : ''}</td><td class="l">All assets</td></tr>`;
   h += '</tbody>';
   document.getElementById('pf-table').innerHTML = h;
@@ -740,11 +765,11 @@ function renderPortfolio() {
 function exportCsv() {
   const { liquid, illiquid, totals: t } = computePortfolio(assets, prices);
   const n = x => typeof x === 'number' && isFinite(x) ? String(+x.toFixed(6)) : '';
-  const lines = [['Type', 'Fund / asset', 'Ticker', 'Units', 'Price', 'As of', 'Day chg', '5-yr total return (ann.)', 'YTD / assumed return', 'Value ($K)', '% of liquid', '% of all']];
-  liquid.forEach(r => lines.push(['Liquid', r.name, r.ticker, n(r.units), n(r.price), r.asOf || '', n(r.dayChg), n(r.tr5y), n(r.ytd), n(r.value), n(r.pctLiq), n(r.pctAll)]));
-  lines.push(['Liquid total', '', '', '', '', '', '', n(t.liq5y), n(t.liqYtd), n(t.liqValue), '1', n(t.liqPct)]);
-  illiquid.forEach(r => lines.push(['Illiquid', r.name, '', '', '', '', '', '', n(r.ret), n(r.value), '', n(r.pctAll)]));
-  lines.push(['All assets', '', '', '', '', '', '', '', n(t.allRet), n(t.allValue), '', '1']);
+  const lines = [['Type', 'Asset class', 'Fund / asset', 'Ticker', 'Units', 'Price', 'As of', 'Day chg', '5-yr total return (ann.)', 'YTD / assumed return', 'Value ($K)', '% of liquid', '% of all']];
+  liquid.forEach(r => lines.push(['Liquid', r.assetClass, r.name, r.ticker, n(r.units), n(r.price), r.asOf || '', n(r.dayChg), n(r.tr5y), n(r.ytd), n(r.value), n(r.pctLiq), n(r.pctAll)]));
+  lines.push(['Liquid total', '', '', '', '', '', '', '', n(t.liq5y), n(t.liqYtd), n(t.liqValue), '1', n(t.liqPct)]);
+  illiquid.forEach(r => lines.push(['Illiquid', r.assetClass, r.name, '', '', '', '', '', '', n(r.ret), n(r.value), '', n(r.pctAll)]));
+  lines.push(['All assets', '', '', '', '', '', '', '', '', n(t.allRet), n(t.allValue), '', '1']);
   download(`portfolio-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(lines));
 }
 
@@ -757,6 +782,7 @@ function sortedAssets(kind) {
 }
 function liquidRowHtml(a) {
   return `<tr data-id="${escapeHtml(a.id || '')}">` +
+    `<td style="width:215px">${assetClassSelect(a.assetClass)}</td>` +
     `<td style="width:110px"><input type="text" class="f-ticker" value="${escapeHtml(a.ticker || '')}" oninput="markDirty()" placeholder="VTSAX"></td>` +
     `<td><input type="text" class="f-name" value="${escapeHtml(a.name || '')}" oninput="markDirty()" placeholder="(from price feed if blank)"></td>` +
     `<td class="num" style="width:150px"><input type="number" step="any" min="0" class="f-units" value="${a.units ?? ''}" oninput="markDirty()"></td>` +
@@ -766,6 +792,7 @@ function liquidRowHtml(a) {
 function illiquidRowHtml(a) {
   const ret = typeof a.assumedReturn === 'number' ? +(a.assumedReturn * 100).toFixed(4) : '';
   return `<tr data-id="${escapeHtml(a.id || '')}">` +
+    `<td style="width:215px">${assetClassSelect(a.assetClass)}</td>` +
     `<td><input type="text" class="f-name" value="${escapeHtml(a.name || '')}" oninput="markDirty()" placeholder="Private equity"></td>` +
     `<td class="num" style="width:160px"><input type="number" step="any" min="0" class="f-value" value="${a.value ?? ''}" oninput="markDirty()"></td>` +
     `<td class="num" style="width:150px"><input type="number" step="any" class="f-ret" value="${ret}" oninput="markDirty()"></td>` +
@@ -774,10 +801,10 @@ function illiquidRowHtml(a) {
 function renderHoldings() {
   if (!currentUser) return;
   document.getElementById('ed-liquid').innerHTML =
-    '<thead><tr><th>Ticker</th><th>Fund name</th><th style="text-align:right">Units</th><th style="text-align:center">Show</th><th></th></tr></thead><tbody>' +
+    '<thead><tr><th>Asset class</th><th>Ticker</th><th>Fund name</th><th style="text-align:right">Units</th><th style="text-align:center">Show</th><th></th></tr></thead><tbody>' +
     sortedAssets('liquid').map(liquidRowHtml).join('') + '</tbody>';
   document.getElementById('ed-illiquid').innerHTML =
-    '<thead><tr><th>Asset</th><th style="text-align:right">Value ($K)</th><th style="text-align:right">Assumed return (%)</th><th></th></tr></thead><tbody>' +
+    '<thead><tr><th>Asset class</th><th>Asset</th><th style="text-align:right">Value ($K)</th><th style="text-align:right">Assumed return (%)</th><th></th></tr></thead><tbody>' +
     sortedAssets('illiquid').map(illiquidRowHtml).join('') + '</tbody>';
   holdingsDirty = false;
   document.getElementById('save-status').textContent = '';
@@ -806,7 +833,10 @@ function readEditor() {
     else if (seenT.has(ticker)) errors.push(`${ticker} is listed twice.`);
     if (unitsRaw === '' || !isFinite(units) || units < 0) errors.push(`${ticker || 'Liquid row ' + (i + 1)}: units must be a number ≥ 0.`);
     seenT.add(ticker);
-    out[tr.dataset.id || newId()] = { kind: 'liquid', ticker, name, units, active: tr.querySelector('.f-active').checked, order: i };
+    const a = { kind: 'liquid', ticker, name, units, active: tr.querySelector('.f-active').checked, order: i };
+    const cls = tr.querySelector('.f-class').value;
+    if (cls) a.assetClass = cls;
+    out[tr.dataset.id || newId()] = a;
   });
   document.querySelectorAll('#ed-illiquid tbody tr').forEach((tr, i) => {
     const name = tr.querySelector('.f-name').value.trim();
@@ -820,6 +850,8 @@ function readEditor() {
     seenN.add(name.toLowerCase());
     const a = { kind: 'illiquid', name, value, order: 1000 + i };
     if (retRaw !== '') a.assumedReturn = ret / 100;
+    const cls = tr.querySelector('.f-class').value;
+    if (cls) a.assetClass = cls;
     out[tr.dataset.id || newId()] = a;
   });
   return { assets: out, errors };
@@ -864,13 +896,13 @@ function download(filename, text) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 async function downloadTemplate() {
-  const rows = [['type', 'ticker', 'name', 'units', 'value_k', 'assumed_return_pct']];
+  const rows = [['type', 'asset_class', 'ticker', 'name', 'units', 'value_k', 'assumed_return_pct']];
   const liq = sortedAssets('liquid'), ill = sortedAssets('illiquid');
-  liq.forEach(a => rows.push(['liquid', a.ticker, a.name || '', a.units ?? '', '', '']));
-  ill.forEach(a => rows.push(['illiquid', '', a.name, '', a.value ?? '', typeof a.assumedReturn === 'number' ? +(a.assumedReturn * 100).toFixed(4) : '']));
+  liq.forEach(a => rows.push(['liquid', a.assetClass || '', a.ticker, a.name || '', a.units ?? '', '', '']));
+  ill.forEach(a => rows.push(['illiquid', a.assetClass || '', '', a.name, '', a.value ?? '', typeof a.assumedReturn === 'number' ? +(a.assumedReturn * 100).toFixed(4) : '']));
   if (!liq.length && !ill.length) {
-    rows.push(['liquid', 'VTSAX', 'Vanguard Total Stock Market Index Fund Admiral', 100, '', '']);
-    rows.push(['illiquid', '', 'Private equity', '', 250, 11]);
+    rows.push(['liquid', 'Equity US Broad', 'VTSAX', 'Vanguard Total Stock Market Index Fund Admiral', 100, '', '']);
+    rows.push(['illiquid', 'Private equity', '', 'Private equity', '', 250, 11]);
   }
   try {
     if (!window.XLSX) await loadScript(SHEETJS_URL);
@@ -880,9 +912,11 @@ async function downloadTemplate() {
     return;
   }
   const ws = XLSX.utils.aoa_to_sheet(rows.map(r => r.map(v => v === '' ? null : v)));
-  ws['!cols'] = [{ wch: 10 }, { wch: 10 }, { wch: 48 }, { wch: 14 }, { wch: 12 }, { wch: 20 }];
+  ws['!cols'] = [{ wch: 10 }, { wch: 22 }, { wch: 10 }, { wch: 48 }, { wch: 14 }, { wch: 12 }, { wch: 20 }];
+  // A second sheet lists the allowed asset classes for reference (uploads read the first sheet only).
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Holdings');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['asset_class'], ...ASSET_CLASSES.map(c => [c])]), 'Asset classes');
   XLSX.writeFile(wb, 'holdings-template.xlsx');
 }
 
@@ -935,6 +969,7 @@ function buildUploadPlan(rawRows, current) {
   const cType = col('type', 'kind'), cTicker = col('ticker', 'symbol'), cName = col('name', 'fund_name', 'asset');
   const cUnits = col('units', 'shares', 'quantity'), cValue = col('value_k', 'value', 'current_value');
   const cRet = col('assumed_return_pct', 'assumed_return', 'return_pct', 'return');
+  const cClass = col('asset_class', 'assetclass', 'class');
   const errors = [];
   if (cTicker < 0 && cName < 0) errors.push('No "ticker" or "name" column found — use the template headers.');
 
@@ -951,6 +986,12 @@ function buildUploadPlan(rawRows, current) {
     let type = String(get(cType) ?? '').trim().toLowerCase();
     if (!type) type = ticker ? 'liquid' : 'illiquid';
     if (type !== 'liquid' && type !== 'illiquid') { items.push({ line, status: 'error', label: ticker || name, msg: `Type must be "liquid" or "illiquid".` }); return; }
+    // Asset class: blank keeps the current one; anything else must be one of ASSET_CLASSES.
+    const clsRaw = String(get(cClass) ?? '').trim();
+    const cls = matchAssetClass(clsRaw);
+    if (cls === null) { items.push({ line, status: 'error', label: ticker || name, msg: `Unknown asset class "${clsRaw}". Use one of: ${ASSET_CLASSES.join(', ')}.` }); return; }
+    const clsFor = cur => cls || (cur && cur.assetClass) || '';
+    const clsTxt = c => c ? ` · ${c}` : '';
 
     if (type === 'liquid') {
       const units = num(get(cUnits));
@@ -960,9 +1001,11 @@ function buildUploadPlan(rawRows, current) {
       seen.add('L:' + ticker);
       const cur = byTicker.get(ticker);
       const nameChanged = name && cur && name !== (cur.name || '');
-      const status = !cur ? 'new' : (Math.abs((Number(cur.units) || 0) - units) > 1e-9 || nameChanged) ? 'changed' : 'same';
-      items.push({ line, status, kind: 'liquid', label: ticker, id: cur && cur.id, ticker, name: name || (cur && cur.name) || '',
-        oldText: cur ? `${fmtNum(Number(cur.units) || 0, 3)} units` : '', newText: `${fmtNum(units, 3)} units`, units });
+      const assetClass = clsFor(cur);
+      const classChanged = cur && assetClass !== (cur.assetClass || '');
+      const status = !cur ? 'new' : (Math.abs((Number(cur.units) || 0) - units) > 1e-9 || nameChanged || classChanged) ? 'changed' : 'same';
+      items.push({ line, status, kind: 'liquid', label: ticker, id: cur && cur.id, ticker, name: name || (cur && cur.name) || '', assetClass,
+        oldText: cur ? `${fmtNum(Number(cur.units) || 0, 3)} units${clsTxt(cur.assetClass)}` : '', newText: `${fmtNum(units, 3)} units${clsTxt(assetClass)}`, units });
     } else {
       const value = num(get(cValue));
       const retPct = num(get(cRet));
@@ -975,10 +1018,12 @@ function buildUploadPlan(rawRows, current) {
       const cur = byName.get(key);
       const ret = retPct === null ? (cur && typeof cur.assumedReturn === 'number' ? cur.assumedReturn : null) : retPct / 100;
       const curRet = cur && typeof cur.assumedReturn === 'number' ? cur.assumedReturn : null;
-      const status = !cur ? 'new' : (Math.abs((Number(cur.value) || 0) - value) > 1e-9 || Math.abs((curRet ?? 0) - (ret ?? 0)) > 1e-9) ? 'changed' : 'same';
-      const txt = (v, r) => `$${fmtNum(v, 1)}K` + (r === null ? '' : ` @ ${fmtPct(r)}`);
-      items.push({ line, status, kind: 'illiquid', label: name, id: cur && cur.id, name,
-        oldText: cur ? txt(Number(cur.value) || 0, curRet) : '', newText: txt(value, ret), value, assumedReturn: ret });
+      const assetClass = clsFor(cur);
+      const classChanged = cur && assetClass !== (cur.assetClass || '');
+      const status = !cur ? 'new' : (Math.abs((Number(cur.value) || 0) - value) > 1e-9 || Math.abs((curRet ?? 0) - (ret ?? 0)) > 1e-9 || classChanged) ? 'changed' : 'same';
+      const txt = (v, r, c) => `$${fmtNum(v, 1)}K` + (r === null ? '' : ` @ ${fmtPct(r)}`) + clsTxt(c);
+      items.push({ line, status, kind: 'illiquid', label: name, id: cur && cur.id, name, assetClass,
+        oldText: cur ? txt(Number(cur.value) || 0, curRet, cur.assetClass) : '', newText: txt(value, ret, assetClass), value, assumedReturn: ret });
     }
   });
   return { items, errors };
@@ -1034,13 +1079,15 @@ async function confirmUpload() {
   changes.forEach(i => {
     const id = i.id || newId();
     const base = assets[id] || {};
+    let a;
     if (i.kind === 'liquid') {
-      updates[id] = { ...base, kind: 'liquid', ticker: i.ticker, name: i.name, units: i.units, active: base.active !== false, order: base.order ?? nextL++ };
+      a = { ...base, kind: 'liquid', ticker: i.ticker, name: i.name, units: i.units, active: base.active !== false, order: base.order ?? nextL++ };
     } else {
-      const a = { ...base, kind: 'illiquid', name: i.name, value: i.value, order: base.order ?? nextI++ };
+      a = { ...base, kind: 'illiquid', name: i.name, value: i.value, order: base.order ?? nextI++ };
       if (i.assumedReturn === null) delete a.assumedReturn; else a.assumedReturn = i.assumedReturn;
-      updates[id] = a;
     }
+    if (i.assetClass) a.assetClass = i.assetClass; else delete a.assetClass;
+    updates[id] = a;
   });
   try {
     await db.ref('household/assets').update(updates);
