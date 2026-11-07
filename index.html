@@ -152,6 +152,35 @@
   table.pf tr.inactive td { color: #c4c4c4; }
   table.pf tr.total td { font-weight: 700; border-top: 1px solid #333; border-bottom: none; }
   table.pf tr.total td.part { font-weight: 400; border-top: none; border-bottom: 1px solid #f0f0f0; }
+  table.pf tr.total td.nb { font-weight: 400; }
+  table.pf tr.total td.row-title { text-align: right; padding-right: 14px; }
+
+  /* ── Portfolio slide deck + Present (full-screen) mode (GTIA style guide §20, §20a).
+     The slides are tables, so presenting scales the whole slide (fitPresentZoom) rather than
+     enlarging fonts. ── */
+  #pf-stage { background: white; }
+  .slide-hdr { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 6px 0 12px; }
+  .slide-hdr > div { flex: 1; min-width: 0; }
+  .slide-hdr button { flex-shrink: 0; }
+  .slide-hdr h2 { margin: 0; color: var(--yale); }
+  #pf-stage.presenting .tbl-wrap { overflow-x: visible; }
+  #slide-page { font-size: 13px; color: #666; }
+  #pf-stage.presenting { position: fixed; inset: 0; z-index: 3000; padding: 24px 36px; overflow: auto; }
+  #pf-stage.presenting #slide-title { font-size: 28px; }
+  #pf-stage.presenting #slide-page { font-size: 15px; }
+  #pf-stage.presenting .hide-presenting { display: none; }
+  #pf-stage .present-only { display: none; }
+  #pf-stage.presenting .present-only { display: block; }
+  body.presenting { overflow: hidden; }
+
+  /* ── Asset allocation tables ── */
+  table.alloc { border-collapse: collapse; font-size: 13.5px; min-width: 520px; }
+  table.alloc th, table.alloc td { padding: 5px 12px; white-space: nowrap; text-align: right; }
+  table.alloc th { font-weight: 600; color: #333; vertical-align: bottom; border-bottom: 1px solid #ccc; }
+  table.alloc th.l, table.alloc td.l { text-align: left; }
+  table.alloc td { border-bottom: 1px solid #f0f0f0; }
+  table.alloc tr.total td { font-weight: 700; border-top: 1px solid #333; border-bottom: none; }
+  table.alloc td.assumed { color: #9a9a9a; }
   table.pf tr.illiquid td.assumed { color: #b5b5b5; }
   table.pf td.neg { color: var(--red); }
   table.pf td.nodata { color: #b5b5b5; font-style: italic; }
@@ -181,6 +210,18 @@
   table.preview tr.st-same td { color: #999; }
 
   .row-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1000;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-box {
+    background: white; border-radius: 14px; box-shadow: 0 8px 40px rgba(0,0,0,0.25);
+    padding: 32px 36px; max-width: 480px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative;
+  }
+  .modal-close { position: absolute; top: 12px; right: 16px; background: none; border: none; font-size: 26px; color: #aaa; cursor: pointer; line-height: 1; }
+  .modal-close:hover { color: #555; }
+  table.ed td.muted { color: #888; font-size: 13px; }
+  .btn-remove:not(:disabled) { color: var(--red); border-color: var(--red); }
   .pw-rules { list-style: none; font-size: 13px; margin-top: 10px; line-height: 1.8; }
   .pw-rules li::before { content: '○ '; color: #aaa; }
   .pw-rules li.ok { color: var(--green); }
@@ -241,21 +282,50 @@
     </div>
 
     <!-- Portfolio -->
+    <!-- Slide deck (GTIA style guide §20) with Present / full-screen mode (§20a). -->
     <div class="tab-pane active" id="tab-app-portfolio">
-      <div class="toolbar">
-        <span class="status" id="price-status">Loading prices…</span>
-        <span class="spacer"></span>
-        <button class="btn btn-secondary btn-sm" onclick="exportCsv()">Export CSV</button>
-        <button class="btn btn-primary btn-sm" id="btn-refresh" onclick="refreshPrices()">Refresh prices</button>
+      <div id="pf-stage">
+        <div class="toolbar">
+          <span class="status" id="price-status">Loading prices…</span>
+          <span class="spacer"></span>
+          <button class="btn btn-secondary btn-sm hide-presenting" onclick="exportCsv()">Export CSV</button>
+          <button class="btn btn-secondary btn-sm hide-presenting" id="btn-refresh" onclick="refreshPrices()">Refresh prices</button>
+          <button class="btn btn-primary btn-sm" id="present-btn" onclick="togglePresent()">⛶ Present (full screen)</button>
+        </div>
+        <div id="pf-warnings"></div>
+
+        <div class="slide-hdr">
+          <button class="btn btn-secondary btn-sm" id="slide-prev-btn" onclick="goToSlide(-1)">&larr; Prev</button>
+          <div style="text-align:center">
+            <h2 id="slide-title"></h2>
+            <span id="slide-page"></span>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="slide-next-btn" onclick="goToSlide(1)">Next &rarr;</button>
+        </div>
+
+        <div id="slide-content">
+          <div class="slide" id="slide-returns">
+            <div class="tbl-wrap"><table class="pf" id="pf-table"></table></div>
+            <p class="desc" style="margin-top:14px">
+              $ values in thousands. Returns are total returns (dividends reinvested). 5-year total return is annualized;
+              its liquid total is value-weighted over funds with 5 years of history. Illiquid returns (gray) are your
+              assumed annual returns. Prices are end-of-day closes from Tiingo; an "As of" time (ET) means the price is a newer
+              quote from Yahoo Finance, used until Tiingo catches up.
+            </p>
+          </div>
+          <div class="slide hidden" id="slide-alloc">
+            <div class="tbl-wrap"><table class="alloc" id="alloc-table"></table></div>
+            <h3>Equities by asset class</h3>
+            <div class="tbl-wrap"><table class="alloc" id="alloc-eq-table"></table></div>
+            <p class="desc" style="margin-top:14px">
+              Returns are value-weighted averages. Gray returns come only from illiquid assets' assumed annual returns,
+              which are used for both the YTD and 5-year columns; funds without 5 years of history are left out of the 5-year
+              average. Holdings with no asset class set are grouped under "Unclassified" — set the class on the Holdings tab.
+            </p>
+          </div>
+        </div>
+        <p class="present-only" style="font-size:12px;color:#888;margin:10px 0 0;text-align:center">← / → change slides · Esc exits full screen</p>
       </div>
-      <div id="pf-warnings"></div>
-      <div class="tbl-wrap"><table class="pf" id="pf-table"></table></div>
-      <p class="desc" style="margin-top:14px">
-        $ values in thousands. Returns are total returns (dividends reinvested). 5-year total return is annualized;
-        its liquid total is value-weighted over funds with 5 years of history. Illiquid returns (gray) are your
-        assumed annual returns. Prices are end-of-day closes from Tiingo; an "As of" time (ET) means the price is a newer
-        quote from Yahoo Finance, used until Tiingo catches up.
-      </p>
     </div>
 
     <!-- Holdings -->
@@ -303,6 +373,57 @@
         <div id="pw-err" class="error hidden" style="text-align:left"></div>
         <button class="btn btn-primary" style="margin-top:16px" onclick="changePassword()">Change password</button>
       </div>
+
+      <!-- Admins only (the server checks too: api/admin-users) -->
+      <div id="admin-section" class="hidden" style="margin-top:40px">
+        <hr style="border:none;border-top:1px solid var(--line);margin:0 0 24px">
+        <h3 style="margin-top:0">User accounts <span class="badge badge-ok" style="margin-left:6px">Admin</span></h3>
+        <p class="desc">
+          Everyone listed here can sign in and sees the same household portfolio. Admins can add and remove accounts,
+          reset non-Admin passwords, and change Admin status. You can't change your own Admin status or remove your own
+          account, and the owner account is always an Admin.
+        </p>
+        <div class="tbl-wrap"><table class="ed" id="admin-users"><tbody><tr><td>Loading…</td></tr></tbody></table></div>
+        <div id="admin-err" class="error hidden" style="text-align:left"></div>
+
+        <h3>Add an account</h3>
+        <div style="max-width:440px">
+          <label for="new-name">Name</label>
+          <input type="text" id="new-name" autocomplete="off" placeholder="First Last">
+          <label for="new-email" style="margin-top:16px">Email (their sign-in)</label>
+          <input type="email" id="new-email" autocomplete="off" placeholder="name@example.com">
+          <label for="new-pw" style="margin-top:16px">Password</label>
+          <input type="password" id="new-pw" autocomplete="new-password" oninput="renderPwRulesFor('new-pw','new-pw2','new-pw-rules')">
+          <label for="new-pw2" style="margin-top:16px">Confirm password</label>
+          <input type="password" id="new-pw2" autocomplete="new-password" oninput="renderPwRulesFor('new-pw','new-pw2','new-pw-rules')">
+          <ul class="pw-rules" id="new-pw-rules"></ul>
+          <label style="margin-top:14px;display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:600">
+            <input type="checkbox" id="new-admin"> Make this account an Admin
+          </label>
+          <div id="new-err" class="error hidden" style="text-align:left"></div>
+          <button class="btn btn-primary" id="btn-add-user" style="margin-top:16px" onclick="addAccount()">Add account</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset another account's password (Admins) -->
+  <div id="modal-reset" class="modal-overlay hidden" onclick="if(event.target===this)closeResetModal()">
+    <div class="modal-box">
+      <button class="modal-close" onclick="closeResetModal()">×</button>
+      <h2 style="margin-bottom:6px">Reset password</h2>
+      <p class="desc" id="reset-who"></p>
+      <label for="reset-pw">New password</label>
+      <input type="password" id="reset-pw" autocomplete="new-password" oninput="renderPwRulesFor('reset-pw','reset-pw2','reset-pw-rules')">
+      <label for="reset-pw2" style="margin-top:16px">Confirm new password</label>
+      <input type="password" id="reset-pw2" autocomplete="new-password" oninput="renderPwRulesFor('reset-pw','reset-pw2','reset-pw-rules')">
+      <ul class="pw-rules" id="reset-pw-rules"></ul>
+      <p class="desc" style="margin-top:10px">Any other open sessions of theirs end within the hour, and they'll need the new password to sign in. Share it with them directly.</p>
+      <div id="reset-err" class="error hidden" style="text-align:left"></div>
+      <div class="row-actions">
+        <button class="btn btn-primary" id="btn-reset-save" onclick="saveResetPassword()">Set new password</button>
+        <button class="btn btn-secondary" onclick="closeResetModal()">Cancel</button>
+      </div>
     </div>
   </div>
 </main>
@@ -324,6 +445,7 @@ const firebaseConfig = {
   appId:             "1:785847011759:web:eac734168ee99e0fa8c75a"
 };
 const API_BASE = 'https://portfolio-vercel-eight-delta.vercel.app';
+const OWNER_EMAIL = 'teppersinger@hotmail.com';   // always an Admin (also enforced in lib/auth.js)
 const STALE_HOURS = 30;          // prices older than this get a "stale" badge
 const SHEETJS_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
 
@@ -362,7 +484,10 @@ function switchTab(scope, name, btn) {
   if (btn) btn.classList.add('active');
   document.getElementById(`tab-${scope}-${name}`)?.classList.add('active');
   if (name === 'holdings' && !holdingsDirty) renderHoldings();
-  if (name === 'account') renderPwRules();
+  if (name === 'account') {
+    renderPwRules();
+    if (currentUser && currentUser.isAdmin) { renderPwRulesFor('new-pw', 'new-pw2', 'new-pw-rules'); loadAdminUsers(); }
+  }
 }
 function setMsg(id, text) {
   const el = document.getElementById(id);
@@ -420,7 +545,12 @@ async function onSignedIn(user) {
     setMsg('login-err', 'This account is not authorized for DIY Portfolio Tracking.');
     return;
   }
-  currentUser = { uid: user.uid, email: user.email, name: profile.name || user.email };
+  currentUser = {
+    uid: user.uid, email: user.email, name: profile.name || user.email,
+    // Display only — api/admin-users checks Admin status again on every request.
+    isAdmin: profile.isAdmin === true || String(user.email || '').toLowerCase() === OWNER_EMAIL,
+  };
+  document.getElementById('admin-section').classList.toggle('hidden', !currentUser.isAdmin);
   document.getElementById('hdr-user').textContent = currentUser.name;
   document.getElementById('logout-row').classList.remove('hidden');
   startApp();
@@ -703,6 +833,7 @@ function renderPortfolio() {
   if (!liquid.length && !illiquid.length) {
     document.getElementById('pf-table').innerHTML =
       '<tbody><tr><td class="l" style="padding:20px">No holdings yet. Add them on the Holdings tab.</td></tr></tbody>';
+    renderAllocation(pf);
     return;
   }
 
@@ -743,9 +874,9 @@ function renderPortfolio() {
   // Liquid totals — Liquid-assets columns only. The All-assets columns are left blank here:
   // the funds are already itemized above, so that column reads funds + illiquid assets = the
   // bold All assets total at the bottom (as in the household spreadsheet).
-  h += '<tr class="total"><td class="l" colspan="6"></td>' +
+  h += '<tr class="total"><td class="l row-title" colspan="6">Average returns, liquid assets</td>' +
        `<td class="sep">${fmtPct(t.liq5y)}</td><td></td><td class="gap"></td>` +
-       `<td>${fmtPct(t.liqYtd)}</td><td>${fmtNum(t.liqValue, 0)}</td><td>${t.liqValue ? '100%' : ''}</td>` +
+       `<td>${fmtPct(t.liqYtd)}</td><td class="nb">${fmtNum(t.liqValue, 0)}</td><td class="nb">${t.liqValue ? '100%' : ''}</td>` +
        '<td class="part" colspan="3"></td><td class="l part"></td></tr>';
 
   // Illiquid rows
@@ -760,7 +891,151 @@ function renderPortfolio() {
        `<td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 0)}</td><td>${t.allValue ? '100%' : ''}</td><td class="l">All assets</td></tr>`;
   h += '</tbody>';
   document.getElementById('pf-table').innerHTML = h;
+  renderAllocation(pf);
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   ASSET ALLOCATION (Portfolio tab, second section)
+══════════════════════════════════════════════════════════════════════ */
+const EQUITY_CLASSES = ASSET_CLASSES.filter(c => c.startsWith('Equity'));
+
+// Groups holdings into rows by a key function. Each row: value ($K), pctAll, ytd, tr5y, and
+// whether each return comes only from illiquid assumed returns. Liquid funds contribute their
+// YTD / 5-year returns; illiquid assets contribute their assumed annual return to both.
+function allocationRows(pf, keyOf, order) {
+  const allValue = pf.totals.allValue;
+  const items = pf.liquid.filter(r => typeof r.value === 'number')
+    .map(r => ({ key: keyOf(r.assetClass), value: r.value, ytd: r.ytd, tr5y: r.tr5y, assumed: false }))
+    .concat(pf.illiquid.map(r => ({ key: keyOf(r.assetClass), value: r.value, ytd: r.ret, tr5y: r.ret, assumed: true })))
+    .filter(i => i.key !== null);
+  const summarize = (label, list) => {
+    const value = list.reduce((s, i) => s + i.value, 0);
+    const onlyAssumed = f => {
+      const used = list.filter(i => i.value > 0 && typeof i[f] === 'number');
+      return used.length > 0 && used.every(i => i.assumed);
+    };
+    return {
+      label, value, pctAll: allValue ? value / allValue : null,
+      ytd: weightedAvg(list, 'ytd'), tr5y: weightedAvg(list, 'tr5y'),
+      ytdAssumed: onlyAssumed('ytd'), tr5yAssumed: onlyAssumed('tr5y'),
+    };
+  };
+  const keys = [...new Set(items.map(i => i.key))]
+    .sort((a, b) => (order.indexOf(a) < 0 ? 999 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 999 : order.indexOf(b)));
+  return { rows: keys.map(k => summarize(k, items.filter(i => i.key === k))), total: summarize('Total', items) };
+}
+
+function computeAllocation(pf) {
+  const UNCL = 'Unclassified';
+  const byClass = allocationRows(pf,
+    c => !c ? UNCL : EQUITY_CLASSES.includes(c) ? 'Equities' : c,
+    ['Equities', ...ASSET_CLASSES.filter(c => !EQUITY_CLASSES.includes(c)), UNCL]);
+  const equities = allocationRows(pf, c => EQUITY_CLASSES.includes(c) ? c : null, EQUITY_CLASSES);
+  equities.total.label = 'Total equities';
+  return { byClass, equities };
+}
+
+function allocationTableHtml({ rows, total }) {
+  if (!rows.length) return '<tbody><tr><td class="l" style="padding:12px">No holdings in these asset classes yet.</td></tr></tbody>';
+  const cYtd = colorScale(rows.map(r => r.ytd)), c5 = colorScale(rows.map(r => r.tr5y));
+  const retCell = (x, assumed, scale) => `<td class="${assumed ? 'assumed' : ''}"${!assumed && scale(x) ? ` style="background:${scale(x)}"` : ''}>${fmtPct(x)}</td>`;
+  const row = (r, cls) => `<tr class="${cls}"><td class="l">${escapeHtml(r.label)}</td><td>${fmtNum(r.value, 0)}</td><td>${fmtPct(r.pctAll)}</td>` +
+    (cls ? `<td>${fmtPct(r.ytd)}</td><td>${fmtPct(r.tr5y)}</td>` : retCell(r.ytd, r.ytdAssumed, cYtd) + retCell(r.tr5y, r.tr5yAssumed, c5)) + '</tr>';
+  return '<thead><tr><th class="l">Asset class</th><th>Current value<br>$K</th><th>% of total<br>assets</th><th>YTD<br>return</th><th>5-year<br>return</th></tr></thead><tbody>' +
+    rows.map(r => row(r, '')).join('') + row(total, 'total') + '</tbody>';
+}
+
+function renderAllocation(pf) {
+  const a = computeAllocation(pf);
+  document.getElementById('alloc-table').innerHTML = allocationTableHtml(a.byClass);
+  document.getElementById('alloc-eq-table').innerHTML = allocationTableHtml(a.equities);
+  renderCurrentSlide();   // titles, Prev/Next state, and (when presenting) the fit for new data
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PORTFOLIO SLIDE DECK (GTIA style guide §20). renderPortfolio() fills every slide's tables;
+   a slide here is just its title and the element to show. A new slide = one more entry
+   plus its markup inside #slide-content.
+══════════════════════════════════════════════════════════════════════ */
+const SLIDES = [
+  { title: 'Total returns on investments, YTD and 5-year', el: 'slide-returns' },
+  { title: 'Asset allocation and performance', el: 'slide-alloc' },
+];
+let currentSlideIndex = 0;
+
+function goToSlide(delta) {
+  currentSlideIndex = Math.max(0, Math.min(SLIDES.length - 1, currentSlideIndex + delta));
+  renderCurrentSlide();
+}
+function renderCurrentSlide() {
+  const slide = SLIDES[currentSlideIndex];
+  document.getElementById('slide-title').textContent = `${currentSlideIndex + 1}. ${slide.title}`;
+  document.getElementById('slide-page').textContent = `Slide ${currentSlideIndex + 1} of ${SLIDES.length}`;
+  document.getElementById('slide-prev-btn').disabled = currentSlideIndex === 0;
+  document.getElementById('slide-next-btn').disabled = currentSlideIndex === SLIDES.length - 1;
+  SLIDES.forEach((s, i) => document.getElementById(s.el).classList.toggle('hidden', i !== currentSlideIndex));
+  fitPresentZoom();
+}
+
+/* ── Present (full-screen) mode (GTIA style guide §20a; same approach as proservices-game.html) ── */
+// While presenting, scale the slide to the screen. A slide that fits on one screen is scaled to
+// fill it (the smaller of the width and height fits); a slide taller than the screen is scaled to
+// the screen's width and scrolls. Unlike the GTIA reference (1×–2.5×), this allows shrinking to
+// 0.5× too: the Returns table is wider than a laptop screen, and it should still fit across.
+function fitPresentZoom() {
+  const stage = document.getElementById('pf-stage');
+  const el = document.getElementById('slide-content');
+  if (!stage || !el) return;
+  el.style.zoom = '';
+  if (!stage.classList.contains('presenting')) return;
+  // The visible slide's tables set its real width (the notes just stretch to whatever is there).
+  const tables = [...el.querySelectorAll('.slide:not(.hidden) table')];
+  const naturalW = Math.max(1, ...tables.map(t => t.offsetWidth));
+  const naturalH = Math.max(1, el.offsetHeight);
+  const top = el.getBoundingClientRect().top - stage.getBoundingClientRect().top + stage.scrollTop;
+  const sp = getComputedStyle(stage);
+  const availW = stage.clientWidth - parseFloat(sp.paddingLeft) - parseFloat(sp.paddingRight);
+  const availH = stage.clientHeight - top - 56;   // room under the title row, less the key-hint line
+  const byWidth = 0.97 * availW / naturalW, byHeight = 0.97 * availH / naturalH;
+  const z = Math.max(0.5, Math.min(2.5, byHeight >= 1 ? Math.min(byWidth, byHeight) : byWidth));
+  el.style.zoom = String(Math.round(z * 100) / 100);
+}
+function togglePresent() {
+  const stage = document.getElementById('pf-stage');
+  if (stage.classList.contains('presenting')) { exitPresent(); return; }
+  stage.classList.add('presenting');
+  document.body.classList.add('presenting');
+  document.getElementById('present-btn').textContent = '✕ Exit full screen';
+  // Full screen can be denied (some iPad contexts); the CSS overlay still covers the page either way.
+  const root = document.documentElement;
+  const req = root.requestFullscreen || root.webkitRequestFullscreen;
+  if (req) Promise.resolve(req.call(root)).catch(() => {});
+  renderCurrentSlide();
+  // Measure again once the overlay (and full screen, if granted) has its final size.
+  requestAnimationFrame(fitPresentZoom);
+  setTimeout(fitPresentZoom, 300);
+}
+function exitPresent() {
+  const stage = document.getElementById('pf-stage');
+  stage.classList.remove('presenting');
+  document.body.classList.remove('presenting');
+  document.getElementById('present-btn').textContent = '⛶ Present (full screen)';
+  if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
+  renderCurrentSlide();
+}
+['fullscreenchange', 'webkitfullscreenchange'].forEach(evt => document.addEventListener(evt, () => {
+  // The browser's own Esc leaves full screen without telling us — drop the overlay too.
+  if (!document.fullscreenElement && !document.webkitFullscreenElement && document.getElementById('pf-stage')?.classList.contains('presenting')) exitPresent();
+  else fitPresentZoom();   // the screen size just changed
+}));
+window.addEventListener('resize', fitPresentZoom);
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('pf-stage')?.classList.contains('presenting')) return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') { goToSlide(1); e.preventDefault(); }
+  if (e.key === 'ArrowLeft' || e.key === 'PageUp') { goToSlide(-1); e.preventDefault(); }
+  if (e.key === 'Escape') exitPresent();
+});
 
 function exportCsv() {
   const { liquid, illiquid, totals: t } = computePortfolio(assets, prices);
@@ -1116,12 +1391,14 @@ const PW_RULES = [
   ['A number', p => /[0-9]/.test(p)],
   ['A symbol (e.g. ! # $ %)', p => /[^A-Za-z0-9]/.test(p)],
 ];
-function renderPwRules() {
-  const p = document.getElementById('pw-new').value, p2 = document.getElementById('pw-new2').value;
-  const rules = PW_RULES.map(([t, f]) => [t, f(p)]).concat([['Both new passwords match', p !== '' && p === p2]]);
-  document.getElementById('pw-rules').innerHTML = rules.map(([t, ok]) => `<li class="${ok ? 'ok' : ''}">${t}</li>`).join('');
+// Shows the rule checklist for a password + confirm pair; returns true when every rule passes.
+function renderPwRulesFor(pwId, pw2Id, listId) {
+  const p = document.getElementById(pwId).value, p2 = document.getElementById(pw2Id).value;
+  const rules = PW_RULES.map(([t, f]) => [t, f(p)]).concat([['Both passwords match', p !== '' && p === p2]]);
+  document.getElementById(listId).innerHTML = rules.map(([t, ok]) => `<li class="${ok ? 'ok' : ''}">${t}</li>`).join('');
   return rules.every(([, ok]) => ok);
 }
+function renderPwRules() { return renderPwRulesFor('pw-new', 'pw-new2', 'pw-rules'); }
 async function changePassword() {
   setMsg('pw-err', '');
   const cur = document.getElementById('pw-cur').value, p = document.getElementById('pw-new').value;
@@ -1138,6 +1415,141 @@ async function changePassword() {
     setMsg('pw-err', authErrorText(e));
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   ACCOUNT TAB — user accounts (Admins). Every action goes through api/admin-users, which
+   checks Admin status itself; nothing here is trusted on its own.
+══════════════════════════════════════════════════════════════════════ */
+let adminUsers = [];
+let resetTarget = null;
+
+function adminApi(action, body) { return apiPost('/api/admin-users', { action, ...(body || {}) }); }
+
+async function loadAdminUsers() {
+  setMsg('admin-err', '');
+  try {
+    adminUsers = (await adminApi('list')).users || [];
+    renderAdminUsers();
+  } catch (e) {
+    document.getElementById('admin-users').innerHTML = '';
+    setMsg('admin-err', 'Could not load accounts: ' + e.message);
+  }
+}
+
+function renderAdminUsers() {
+  const rows = adminUsers.map(u => {
+    const self = u.uid === currentUser.uid;
+    const adminLocked = self || u.isOwner;
+    const adminTitle = u.isOwner ? 'The owner account is always an Admin' : self ? "You can't change your own Admin status" : '';
+    const resetBlocked = self ? 'Use "Change password" above for your own account'
+      : u.isAdmin ? "Admins' passwords can't be reset here" : u.missing ? 'This account no longer exists in Firebase' : '';
+    const removeBlocked = self ? "You can't remove your own account" : u.isOwner ? "The owner account can't be removed" : '';
+    const tags = [u.isOwner ? 'owner' : '', self ? 'you' : '', u.disabled ? 'disabled' : '', u.missing ? 'missing' : ''].filter(Boolean);
+    return `<tr data-uid="${escapeHtml(u.uid)}">` +
+      `<td>${escapeHtml(u.name)}${tags.length ? ` <span class="status">(${tags.join(', ')})</span>` : ''}</td>` +
+      `<td>${escapeHtml(u.email)}</td>` +
+      `<td style="text-align:center"><input type="checkbox" ${u.isAdmin ? 'checked' : ''} ${adminLocked ? 'disabled' : ''} title="${escapeHtml(adminTitle)}" onchange="toggleAdmin('${escapeHtml(u.uid)}', this)"></td>` +
+      `<td class="muted">${u.lastSignIn ? escapeHtml(fmtDateTime(u.lastSignIn)) : 'never'}</td>` +
+      `<td><button class="btn btn-secondary btn-sm" ${resetBlocked ? 'disabled' : ''} title="${escapeHtml(resetBlocked)}" onclick="openResetModal('${escapeHtml(u.uid)}')">Reset password</button></td>` +
+      `<td><button class="btn btn-secondary btn-sm btn-remove" ${removeBlocked ? 'disabled' : ''} title="${escapeHtml(removeBlocked)}" onclick="removeAccount('${escapeHtml(u.uid)}', this)">Remove</button></td></tr>`;
+  });
+  document.getElementById('admin-users').innerHTML =
+    '<thead><tr><th>Name</th><th>Email</th><th style="text-align:center">Admin</th><th>Last sign-in</th><th></th><th></th></tr></thead><tbody>' +
+    (rows.join('') || '<tr><td colspan="6">No accounts.</td></tr>') + '</tbody>';
+}
+
+async function removeAccount(uid, btn) {
+  const u = adminUsers.find(x => x.uid === uid);
+  if (!u) return;
+  if (!confirm(`Remove ${u.name} (${u.email})?\n\nThey'll lose access right away and their sign-in will be deleted. ` +
+               `The household holdings aren't affected. You can add them again later.`)) return;
+  btn.disabled = true;
+  try {
+    await adminApi('remove', { uid });
+    await loadAdminUsers();
+    alert(`Removed ${u.name}.`);
+  } catch (e) {
+    btn.disabled = false;
+    alert('Could not remove the account: ' + e.message);
+  }
+}
+
+async function toggleAdmin(uid, box) {
+  const u = adminUsers.find(x => x.uid === uid);
+  const want = box.checked;
+  if (!confirm(want ? `Make ${u.name} an Admin? They'll be able to add accounts and reset non-Admin passwords.`
+                    : `Remove Admin status from ${u.name}?`)) { box.checked = !want; return; }
+  box.disabled = true;
+  try {
+    await adminApi('set-admin', { uid, isAdmin: want });
+    await loadAdminUsers();
+  } catch (e) {
+    box.checked = !want;
+    box.disabled = false;
+    alert('Could not change Admin status: ' + e.message);
+  }
+}
+
+async function addAccount() {
+  setMsg('new-err', '');
+  const name = document.getElementById('new-name').value.trim();
+  const email = document.getElementById('new-email').value.trim();
+  const password = document.getElementById('new-pw').value;
+  const isAdmin = document.getElementById('new-admin').checked;
+  if (!name) { setMsg('new-err', 'Enter a name.'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setMsg('new-err', 'Enter a valid email address.'); return; }
+  if (!renderPwRulesFor('new-pw', 'new-pw2', 'new-pw-rules')) { setMsg('new-err', 'The password does not meet every rule above.'); return; }
+  const btn = document.getElementById('btn-add-user');
+  btn.disabled = true;
+  try {
+    await adminApi('create', { name, email, password, isAdmin });
+    ['new-name', 'new-email', 'new-pw', 'new-pw2'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('new-admin').checked = false;
+    renderPwRulesFor('new-pw', 'new-pw2', 'new-pw-rules');
+    await loadAdminUsers();
+    alert(`Added ${name}. Share their password with them directly; they can change it on the Account tab.`);
+  } catch (e) {
+    setMsg('new-err', 'Could not add the account: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openResetModal(uid) {
+  resetTarget = adminUsers.find(u => u.uid === uid);
+  if (!resetTarget) return;
+  document.getElementById('reset-who').textContent = `For ${resetTarget.name} (${resetTarget.email}).`;
+  ['reset-pw', 'reset-pw2'].forEach(id => document.getElementById(id).value = '');
+  setMsg('reset-err', '');
+  renderPwRulesFor('reset-pw', 'reset-pw2', 'reset-pw-rules');
+  document.getElementById('modal-reset').classList.remove('hidden');
+  document.getElementById('reset-pw').focus();
+}
+function closeResetModal() {
+  document.getElementById('modal-reset').classList.add('hidden');
+  ['reset-pw', 'reset-pw2'].forEach(id => document.getElementById(id).value = '');
+  resetTarget = null;
+}
+async function saveResetPassword() {
+  setMsg('reset-err', '');
+  if (!resetTarget) return;
+  if (!renderPwRulesFor('reset-pw', 'reset-pw2', 'reset-pw-rules')) { setMsg('reset-err', 'The password does not meet every rule above.'); return; }
+  const btn = document.getElementById('btn-reset-save');
+  btn.disabled = true;
+  try {
+    await adminApi('set-password', { uid: resetTarget.uid, password: document.getElementById('reset-pw').value });
+    const who = resetTarget.name;
+    closeResetModal();
+    alert(`Password reset for ${who}. Share the new password with them directly.`);
+  } catch (e) {
+    setMsg('reset-err', 'Could not reset the password: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !document.getElementById('modal-reset').classList.contains('hidden')) closeResetModal();
+});
 </script>
 </body>
 </html>
