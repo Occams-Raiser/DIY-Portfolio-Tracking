@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIY Portfolio Tracking — Suited Connectors LLC</title>
+<link rel="icon" href="suited-connectors-icon.png">
+<style>
+  /* ── Palette (matched to the Suited Connectors logo: black ink, gray card outline) ── */
+  :root {
+    --ink:   #1C1C1C;
+    --slate: #3A3A3A;
+    --gray:  #BDBDBD;
+    --line:  #E2E2E2;
+    --mist:  #F0F0F0;
+    --paper: #FAFAFA;
+    --red:   #c0392b;
+    --green: #27ae60;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    background: var(--mist);
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: stretch;
+    color: #222;
+  }
+
+  /* ── Header bar (same structure as the GTIA style guide §1) ── */
+  .app-header {
+    background: var(--ink); color: white;
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 28px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    flex-shrink: 0;
+  }
+  .app-header .hdr-logo { height: 36px; width: 36px; border-radius: 6px; background: white; display: block; }
+  .app-header .hdr-title { font-size: 16px; font-weight: 700; color: white; line-height: 1.25; }
+  .app-header .hdr-sub { font-size: 12px; color: rgba(255,255,255,.65); }
+  .app-header .hdr-center { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .app-header .hdr-center #hdr-user { font-size: 12px; color: rgba(255,255,255,.85); margin-top: 2px; }
+  .app-header .hdr-copy { font-size: 12px; color: rgba(255,255,255,.55); white-space: normal; max-width: 100px; }
+  /* Phones in portrait can't fit all five header items — drop the least essential one
+     rather than letting the header overflow (GTIA style guide §1). */
+  @media (max-width: 500px) {
+    .app-header .hdr-copy { display: none; }
+  }
+
+  .logout-row { padding: 8px 28px 0; text-align: right; }
+  .logout-row button { background: none; border: none; color: var(--ink); font-size: 13px; cursor: pointer; }
+  .logout-row button:hover { text-decoration: underline; }
+
+  .main-content { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: 36px 20px; }
+
+  .card {
+    background: white; border-radius: 12px;
+    box-shadow: 0 2px 28px rgba(0,0,0,0.11);
+    padding: 40px; width: 100%; max-width: 680px;
+  }
+  .card.wide { max-width: none; padding: 24px 28px; }
+  .hidden { display: none !important; }
+
+  .logo { text-align: center; margin-bottom: 30px; }
+  .logo h1 { font-size: 26px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+  .logo p  { font-size: 14px; color: #777; }
+
+  label {
+    display: block; font-size: 13px; font-weight: 600; color: #444;
+    margin: 20px 0 6px; text-transform: uppercase; letter-spacing: .4px;
+  }
+  label:first-of-type { margin-top: 0; }
+  /* >= 16px keeps iOS Safari from zooming on focus. */
+  input[type="email"], input[type="password"], input[type="text"], input[type="number"] {
+    width: 100%; padding: 10px 14px;
+    border: 1.5px solid #ddd; border-radius: 8px;
+    font-size: 16px; color: #1a1a1a; background: white;
+    transition: border-color .2s;
+  }
+  input:focus { outline: none; border-color: var(--ink); }
+
+  .btn {
+    display: inline-block; padding: 12px 20px; border: none; border-radius: 8px;
+    font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity .2s, transform .1s;
+  }
+  .btn:hover { opacity: .88; }
+  .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn-primary { background: var(--ink); color: white; }
+  .btn-primary.block { width: 100%; margin-top: 28px; }
+  .btn-secondary { background: white; color: var(--ink); border: 1.5px solid var(--ink); }
+  .btn-sm { font-size: 13px; padding: 7px 13px; }
+  .link-btn { background: none; border: none; color: var(--slate); font-size: 13px; cursor: pointer; text-decoration: underline; margin-top: 16px; }
+
+  .error { color: var(--red); font-size: 13px; margin-top: 10px; text-align: center; }
+  .notice { color: var(--slate); font-size: 13px; margin-top: 10px; text-align: center; }
+
+  .info-box {
+    background: var(--paper); border: 1px solid var(--line);
+    border-radius: 8px; padding: 14px 16px; margin-bottom: 18px;
+    font-size: 13px; color: #555; line-height: 1.6;
+  }
+  .info-box strong { color: #222; }
+  .info-box.danger { background: #fde8e8; border-color: #e57373; color: #922; }
+  .info-box.warn { background: #fff8e1; border-color: #f0d27a; color: #7a5a00; }
+
+  h2 { font-size: 20px; color: var(--ink); margin-bottom: 8px; }
+  h3 { font-size: 15px; font-weight: 700; color: #333; margin: 26px 0 10px; }
+  p.desc { font-size: 13px; color: #666; line-height: 1.6; margin: 4px 0 12px; }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); margin-bottom: 20px; flex-wrap: wrap; }
+  .tab {
+    padding: 8px 18px; font-size: 14px; font-weight: 600; color: #888;
+    border: none; background: none; cursor: pointer;
+    border-bottom: 3px solid transparent; margin-bottom: -2px;
+    border-radius: 6px 6px 0 0; transition: color .15s;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.active { color: var(--ink); border-bottom-color: var(--ink); }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .toolbar .spacer { flex: 1; }
+  .status { font-size: 13px; color: #666; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .badge-stale { background: #fff3cd; color: #7a5a00; }
+  .badge-ok { background: #e6f4ea; color: #1e6b3a; }
+
+  /* ── Portfolio table (layout follows the household spreadsheet) ── */
+  .tbl-wrap { overflow-x: auto; }
+  table.pf { border-collapse: collapse; font-size: 13.5px; min-width: max-content; }
+  table.pf th, table.pf td { padding: 4px 9px; white-space: nowrap; }
+  table.pf thead th { font-weight: 600; color: #333; vertical-align: bottom; text-align: right; border-bottom: 1px solid #ccc; }
+  table.pf thead th.l { text-align: left; }
+  table.pf thead tr.grp th { text-align: center; border: 1px solid #333; border-bottom: none; font-weight: 600; }
+  table.pf thead tr.grp th.blank { border: none; }
+  table.pf td { text-align: right; border-bottom: 1px solid #f0f0f0; }
+  table.pf td.l { text-align: left; }
+  table.pf td.gap, table.pf th.gap { width: 18px; padding: 0; border: none; }
+  table.pf td.sep, table.pf th.sep { border-left: 1px solid #333; }
+  table.pf tr.inactive td { color: #c4c4c4; }
+  table.pf tr.total td { font-weight: 700; border-top: 1px solid #333; border-bottom: none; }
+  table.pf tr.illiquid td.assumed { color: #b5b5b5; }
+  table.pf td.neg { color: var(--red); }
+  table.pf td.nodata { color: #b5b5b5; font-style: italic; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { background: var(--mist); }
+  .sort-arrow { font-size: 11px; margin-left: 4px; opacity: .55; display: inline-block; }
+  .bank { font-size: 12px; margin-right: 5px; opacity: .7; }
+
+  /* ── Holdings editor ── */
+  table.ed { border-collapse: collapse; font-size: 14px; width: 100%; }
+  table.ed th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: #666; padding: 6px 6px; border-bottom: 1px solid var(--line); }
+  table.ed td { padding: 4px 6px; border-bottom: 1px solid #f2f2f2; }
+  table.ed input[type="text"], table.ed input[type="number"] { padding: 6px 9px; font-size: 16px; }
+  table.ed td.num input { text-align: right; }
+  table.ed .rm { background: none; border: none; color: #999; font-size: 18px; cursor: pointer; }
+  table.ed .rm:hover { color: var(--red); }
+  table.ed .err-cell { font-size: 12px; color: var(--red); }
+
+  table.preview { border-collapse: collapse; font-size: 13px; width: 100%; margin-top: 10px; }
+  table.preview th { text-align: left; padding: 6px 8px; background: var(--ink); color: white; font-weight: 600; }
+  table.preview td { padding: 5px 8px; border-bottom: 1px solid #eee; }
+  table.preview tr.st-new td { background: #eef7ee; }
+  table.preview tr.st-changed td { background: #fff8e1; }
+  table.preview tr.st-error td { background: #fde8e8; color: #922; }
+  table.preview tr.st-same td { color: #999; }
+
+  .row-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .pw-rules { list-style: none; font-size: 13px; margin-top: 10px; line-height: 1.8; }
+  .pw-rules li::before { content: '○ '; color: #aaa; }
+  .pw-rules li.ok { color: var(--green); }
+  .pw-rules li.ok::before { content: '● '; color: var(--green); }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <img class="hdr-logo" src="suited-connectors-icon.png" alt="Suited Connectors LLC">
+  <div>
+    <div class="hdr-title">Suited Connectors LLC</div>
+    <div class="hdr-sub">Household portfolio</div>
+  </div>
+  <div class="hdr-center">
+    <div class="hdr-title">DIY Portfolio Tracking</div>
+    <div id="hdr-user"></div>
+  </div>
+  <span class="hdr-copy">&copy; Daniel Singer, 2026</span>
+  <img class="hdr-logo" src="suited-connectors-icon.png" alt="Suited Connectors LLC">
+</header>
+<div class="logout-row hidden" id="logout-row">
+  <button onclick="doLogout()">Log out</button>
+</div>
+
+<main class="main-content">
+
+  <!-- ══ Login (logo sits beneath the card, per the style guide) ══ -->
+  <div id="screen-login" style="width:100%;max-width:520px;display:flex;flex-direction:column;align-items:center">
+    <div class="card" style="width:100%">
+      <div class="logo"><h1>DIY Portfolio Tracking</h1><p>Suited Connectors LLC &nbsp;·&nbsp; Sign in</p></div>
+      <div id="config-warning" class="info-box danger hidden">
+        Firebase is not configured yet. Paste the project's web config into <code>firebaseConfig</code> in index.html (see SETUP.md).
+      </div>
+      <form id="login-form" onsubmit="doLogin(event)" novalidate>
+        <label for="inp-email">Email</label>
+        <input type="email" id="inp-email" autocomplete="username" placeholder="you@example.com">
+        <label for="inp-pw" style="margin-top:20px">Password</label>
+        <input type="password" id="inp-pw" autocomplete="current-password">
+        <div id="login-err" class="error hidden"></div>
+        <div id="login-msg" class="notice hidden"></div>
+        <button type="submit" class="btn btn-primary block" id="btn-login">Sign In →</button>
+      </form>
+      <div style="text-align:center">
+        <button class="link-btn" type="button" onclick="forgotPassword()">I forgot my password</button>
+      </div>
+    </div>
+    <img src="suited-connectors-logo.png" alt="Suited Connectors LLC logo"
+         style="display:block;max-width:100%;width:340px;margin-top:28px;border-radius:10px">
+  </div>
+
+  <!-- ══ App ══ -->
+  <div id="screen-app" class="card wide hidden">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('app','portfolio',this)">Portfolio</button>
+      <button class="tab" onclick="switchTab('app','holdings',this)">Holdings</button>
+      <button class="tab" onclick="switchTab('app','account',this)">Account</button>
+    </div>
+
+    <!-- Portfolio -->
+    <div class="tab-pane active" id="tab-app-portfolio">
+      <div class="toolbar">
+        <span class="status" id="price-status">Loading prices…</span>
+        <span class="spacer"></span>
+        <button class="btn btn-secondary btn-sm" onclick="exportCsv()">Export CSV</button>
+        <button class="btn btn-primary btn-sm" id="btn-refresh" onclick="refreshPrices()">Refresh prices</button>
+      </div>
+      <div id="pf-warnings"></div>
+      <div class="tbl-wrap"><table class="pf" id="pf-table"></table></div>
+      <p class="desc" style="margin-top:14px">
+        $ values in thousands. Returns are total returns (dividends reinvested). 5-year total return is annualized;
+        its liquid total is value-weighted over funds with 5 years of history. Illiquid returns (gray) are your
+        assumed annual returns. Prices are end-of-day closes.
+      </p>
+    </div>
+
+    <!-- Holdings -->
+    <div class="tab-pane" id="tab-app-holdings">
+      <h3 style="margin-top:0">Upload a file</h3>
+      <p class="desc">
+        Download the template (it's pre-filled with your current holdings), change the units or values, and upload it as CSV or Excel.
+        Rows match by ticker (liquid) or by name (illiquid). Anything not in the file stays as it is.
+        You'll see a preview before anything is saved.
+      </p>
+      <div class="row-actions" style="margin-top:0">
+        <button class="btn btn-secondary btn-sm" onclick="downloadTemplate()">Download template</button>
+        <input type="file" id="upload-file" accept=".csv,.xlsx,.xls" onchange="handleUpload(this)">
+      </div>
+      <div id="upload-preview"></div>
+
+      <h3>Liquid assets</h3>
+      <p class="desc">Units are the number of shares you own. Clear "Show" to gray a fund out on the Portfolio tab.</p>
+      <table class="ed" id="ed-liquid"></table>
+      <div class="row-actions"><button class="btn btn-secondary btn-sm" onclick="addRow('liquid')">+ Add fund</button></div>
+
+      <h3>Illiquid assets</h3>
+      <p class="desc">Current value in $ thousands, and the annual return you assume for it.</p>
+      <table class="ed" id="ed-illiquid"></table>
+      <div class="row-actions"><button class="btn btn-secondary btn-sm" onclick="addRow('illiquid')">+ Add asset</button></div>
+
+      <div class="row-actions" style="margin-top:24px">
+        <button class="btn btn-primary" id="btn-save" onclick="saveHoldings()">Save changes</button>
+        <button class="btn btn-secondary" onclick="discardEdits()">Discard changes</button>
+        <span class="status" id="save-status"></span>
+      </div>
+    </div>
+
+    <!-- Account -->
+    <div class="tab-pane" id="tab-app-account">
+      <div style="max-width:440px">
+        <h3 style="margin-top:0">Change password</h3>
+        <label for="pw-cur">Current password</label>
+        <input type="password" id="pw-cur" autocomplete="current-password">
+        <label for="pw-new" style="margin-top:16px">New password</label>
+        <input type="password" id="pw-new" autocomplete="new-password" oninput="renderPwRules()">
+        <label for="pw-new2" style="margin-top:16px">Confirm new password</label>
+        <input type="password" id="pw-new2" autocomplete="new-password" oninput="renderPwRules()">
+        <ul class="pw-rules" id="pw-rules"></ul>
+        <div id="pw-err" class="error hidden" style="text-align:left"></div>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="changePassword()">Change password</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════════════
+   CONFIG — fill in from SETUP.md
+══════════════════════════════════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey:            "REPLACE_ME",
+  authDomain:        "REPLACE_ME.firebaseapp.com",
+  databaseURL:       "https://REPLACE_ME-default-rtdb.firebaseio.com",
+  projectId:         "REPLACE_ME",
+  storageBucket:     "REPLACE_ME.firebasestorage.app",
+  messagingSenderId: "REPLACE_ME",
+  appId:             "REPLACE_ME"
+};
+const API_BASE = 'https://portfolio-vercel.vercel.app';
+const STALE_HOURS = 30;          // prices older than this get a "stale" badge
+const SHEETJS_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+
+/* ══════════════════════════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════════════════════════ */
+const configured = !String(firebaseConfig.apiKey).startsWith('REPLACE');
+let auth = null, db = null;
+let currentUser = null;      // { uid, email, name }
+let assets = {};             // household/assets
+let prices = {};             // prices/{ticker}
+let priceStatus = null;      // priceStatus
+let listeners = [];
+let loginInFlight = false;
+let holdingsDirty = false;
+let pendingUpload = null;    // parsed upload awaiting confirmation
+let sortKey = 'order', sortDir = 'asc';
+
+if (configured) {
+  firebase.initializeApp(firebaseConfig);
+  auth = firebase.auth();
+  db = firebase.database();
+} else {
+  document.getElementById('config-warning').classList.remove('hidden');
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   SCREENS / TABS
+══════════════════════════════════════════════════════════════════════ */
+function showScreen(id) {
+  ['screen-login', 'screen-app'].forEach(s => document.getElementById(s).classList.toggle('hidden', s !== id));
+}
+function switchTab(scope, name, btn) {
+  document.querySelectorAll(`#screen-${scope} .tab`).forEach(t => t.classList.remove('active'));
+  document.querySelectorAll(`#screen-${scope} .tab-pane`).forEach(p => p.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById(`tab-${scope}-${name}`)?.classList.add('active');
+  if (name === 'holdings' && !holdingsDirty) renderHoldings();
+  if (name === 'account') renderPwRules();
+}
+function setMsg(id, text) {
+  const el = document.getElementById(id);
+  el.textContent = text || '';
+  el.classList.toggle('hidden', !text);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   LOGIN / LOGOUT / FORGOT PASSWORD
+══════════════════════════════════════════════════════════════════════ */
+function authErrorText(e) {
+  const code = e && e.code || '';
+  if (/invalid-credential|wrong-password|user-not-found|invalid-email|invalid-login/.test(code)) return 'Incorrect email or password.';
+  if (/too-many-requests/.test(code)) return 'Too many attempts. Wait a few minutes, or reset your password.';
+  if (/user-disabled/.test(code)) return 'This account is disabled.';
+  if (/network/.test(code)) return 'Network error — check your connection and try again.';
+  if (/password-does-not-meet-requirements|weak-password/.test(code)) return 'That password does not meet the password rules.';
+  return (e && e.message) || 'Something went wrong.';
+}
+
+async function doLogin(ev) {
+  if (ev) ev.preventDefault();
+  // One login at a time: a second concurrent login's signOut() guard would kill the first
+  // (GTIA style guide §2a). The form's submit event is the only trigger — no extra Enter handler.
+  if (loginInFlight || currentUser || !configured) return;
+  const email = document.getElementById('inp-email').value.trim();
+  const pw = document.getElementById('inp-pw').value;
+  setMsg('login-err', ''); setMsg('login-msg', '');
+  if (!email || !pw) { setMsg('login-err', 'Enter your email and password.'); return; }
+  loginInFlight = true;
+  document.getElementById('btn-login').disabled = true;
+  try {
+    // Scope the session to this tab, and clear any half-finished prior session first
+    // (GTIA style guide §2a — tabs at the same origin otherwise share one sign-in).
+    await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(() => {});
+    await auth.signOut().catch(() => {});
+    await auth.signInWithEmailAndPassword(email, pw);
+    document.getElementById('inp-pw').value = '';
+  } catch (e) {
+    setMsg('login-err', authErrorText(e));
+  } finally {
+    loginInFlight = false;
+    document.getElementById('btn-login').disabled = false;
+  }
+}
+
+async function onSignedIn(user) {
+  let profile;
+  try {
+    const snap = await db.ref(`allowedUsers/${user.uid}`).get();
+    profile = snap.val();
+  } catch (e) { profile = null; }
+  if (!profile) {
+    await auth.signOut().catch(() => {});
+    setMsg('login-err', 'This account is not authorized for DIY Portfolio Tracking.');
+    return;
+  }
+  currentUser = { uid: user.uid, email: user.email, name: profile.name || user.email };
+  document.getElementById('hdr-user').textContent = currentUser.name;
+  document.getElementById('logout-row').classList.remove('hidden');
+  startApp();
+}
+
+function doLogout() {
+  listeners.forEach(off => off());
+  listeners = [];
+  const signedOut = Promise.resolve(auth && auth.signOut()).catch(() => {});
+  // Reload so nothing from this session (listeners, cache, edits) survives into the next login.
+  signedOut.finally(() => location.reload());
+}
+
+async function forgotPassword() {
+  setMsg('login-err', ''); setMsg('login-msg', '');
+  const email = document.getElementById('inp-email').value.trim();
+  if (!email) { setMsg('login-err', 'Enter your email above first, then click "I forgot my password".'); return; }
+  try {
+    const res = await fetch(`${API_BASE}/api/request-reset`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    setMsg('login-msg', data.message || 'If that account exists, a password reset link has been emailed to the administrator.');
+  } catch (e) {
+    setMsg('login-err', 'Could not request a reset: ' + e.message);
+  }
+}
+
+if (configured) {
+  auth.onAuthStateChanged(user => {
+    if (user && !currentUser) onSignedIn(user);
+    if (!user && currentUser) location.reload();   // session dropped while logged in
+    if (!user) showScreen('screen-login');
+  });
+} else {
+  showScreen('screen-login');
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   DATA
+══════════════════════════════════════════════════════════════════════ */
+function startApp() {
+  showScreen('screen-app');   // easy to forget — without it login "succeeds" invisibly
+  const sub = (path, fn) => {
+    const ref = db.ref(path);
+    const cb = ref.on('value', s => fn(s.val()), err => {
+      document.getElementById('pf-warnings').innerHTML =
+        `<div class="info-box danger">Could not read ${path}: ${escapeHtml(err.message)}. Try logging out and back in.</div>`;
+    });
+    listeners.push(() => ref.off('value', cb));
+  };
+  sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); });
+  sub('prices', v => { prices = v || {}; renderPortfolio(); });
+  sub('priceStatus', v => { priceStatus = v; renderPortfolio(); });
+}
+
+async function apiPost(path, body) {
+  const idToken = await auth.currentUser.getIdToken();
+  const res = await fetch(API_BASE + path, {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + idToken, 'content-type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+async function refreshPrices(quiet) {
+  const btn = document.getElementById('btn-refresh');
+  btn.disabled = true; btn.textContent = 'Refreshing…';
+  try {
+    const r = await apiPost('/api/refresh-prices');
+    if (!quiet) {
+      if (r.skipped) alert('Prices were refreshed less than 2 minutes ago — showing those.');
+      else alert(`Prices refreshed for ${r.ok} fund(s).` + (r.failed ? ` ${r.failed} could not be updated — see the warning above the table.` : ''));
+    }
+  } catch (e) {
+    alert('Could not refresh prices: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Refresh prices';
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   CALCULATIONS (pure — tested against the 11/6/2026 spreadsheet)
+══════════════════════════════════════════════════════════════════════ */
+function normTicker(t) { return String(t || '').trim().toUpperCase().replace(/\./g, '-'); }
+
+// Value-weighted average of `field` over rows where both value and field are numbers.
+// Rows without the field are left out and the rest reweighted.
+function weightedAvg(rows, field) {
+  let w = 0, s = 0;
+  rows.forEach(r => {
+    if (typeof r.value === 'number' && typeof r[field] === 'number' && r.value > 0) { w += r.value; s += r.value * r[field]; }
+  });
+  return w > 0 ? s / w : null;
+}
+
+function computePortfolio(assetMap, priceMap) {
+  const list = Object.entries(assetMap || {}).map(([id, a]) => ({ id, ...a }));
+  const byOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0) || String(a.name).localeCompare(String(b.name));
+
+  const liquid = list.filter(a => a.kind === 'liquid').sort(byOrder).map(a => {
+    const t = normTicker(a.ticker);
+    const p = (priceMap || {})[t] || null;
+    const units = Number(a.units) || 0;
+    const price = p && typeof p.price === 'number' ? p.price : null;
+    return {
+      id: a.id, order: a.order ?? 0, ticker: t,
+      name: a.name || (p && p.name) || t,
+      active: a.active !== false,
+      units, price,
+      asOf: p ? p.asOf : null,
+      dayChg: p ? p.dayChg ?? null : null,
+      ytd: p ? p.ytd ?? null : null,
+      tr5y: p ? p.tr5y ?? null : null,
+      value: price === null ? null : units * price / 1000,   // $ thousands
+      priceError: p ? null : 'No price yet',
+    };
+  });
+  const illiquid = list.filter(a => a.kind === 'illiquid').sort(byOrder).map(a => ({
+    id: a.id, order: a.order ?? 0, name: a.name,
+    value: Number(a.value) || 0,                 // already $ thousands
+    ret: typeof a.assumedReturn === 'number' ? a.assumedReturn : null,
+  }));
+
+  const liqValue = liquid.reduce((s, r) => s + (r.value || 0), 0);
+  const illValue = illiquid.reduce((s, r) => s + r.value, 0);
+  const allValue = liqValue + illValue;
+  liquid.forEach(r => {
+    r.pctLiq = r.value === null || !liqValue ? null : r.value / liqValue;
+    r.pctAll = r.value === null || !allValue ? null : r.value / allValue;
+  });
+  illiquid.forEach(r => { r.pctAll = allValue ? r.value / allValue : null; });
+
+  // All-assets return: liquid funds contribute YTD, illiquids their assumed return.
+  const allRows = liquid.map(r => ({ value: r.value, ret: r.ytd })).concat(illiquid.map(r => ({ value: r.value, ret: r.ret })));
+  return {
+    liquid, illiquid,
+    totals: {
+      liqValue, illValue, allValue,
+      liqYtd: weightedAvg(liquid, 'ytd'),
+      liq5y: weightedAvg(liquid, 'tr5y'),
+      liqPct: liqValue && allValue ? liqValue / allValue : null,
+      allRet: weightedAvg(allRows, 'ret'),
+      missingPrices: liquid.filter(r => r.value === null).map(r => r.ticker),
+    },
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   FORMATTING
+══════════════════════════════════════════════════════════════════════ */
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function fmtPct(x, dp = 1) { return typeof x === 'number' && isFinite(x) ? (x * 100).toFixed(dp) + '%' : ''; }
+function fmtParenPct(x) {
+  if (typeof x !== 'number' || !isFinite(x)) return '';
+  const s = Math.abs(x * 100).toFixed(2) + '%';
+  return x < 0 ? `(${s})` : s;
+}
+function fmtNum(x, dp) {
+  if (typeof x !== 'number' || !isFinite(x)) return '';
+  if (Math.abs(x) < 0.005) return '-';
+  return x.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+}
+function fmtDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  return `${m}/${d}/${y}`;
+}
+function fmtDateTime(ms) {
+  if (!ms) return '';
+  return new Date(ms).toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+// Excel-style 3-color scale: lowest red, 50th percentile yellow, highest green.
+function colorScale(values) {
+  const v = values.filter(x => typeof x === 'number' && isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return () => '';
+  const lo = v[0], hi = v[v.length - 1];
+  const mid = v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  const RED = [248, 105, 107], YEL = [255, 235, 132], GRN = [99, 190, 123];
+  const mix = (a, b, t) => a.map((c, i) => Math.round(c + (b[i] - c) * t));
+  return x => {
+    if (typeof x !== 'number' || !isFinite(x) || hi === lo) return typeof x === 'number' && hi === lo ? `rgb(${YEL})` : '';
+    const rgb = x <= mid ? mix(RED, YEL, mid === lo ? 1 : (x - lo) / (mid - lo)) : mix(YEL, GRN, hi === mid ? 1 : (x - mid) / (hi - mid));
+    return `rgb(${rgb.join(',')})`;
+  };
+}
+function dataBar(x, max) {
+  if (typeof x !== 'number' || !max || x <= 0) return '';
+  const w = Math.max(0, Math.min(100, x / max * 100)).toFixed(1);
+  return `background:linear-gradient(90deg,#5B9BD5 0%,#C9DEF3 ${w}%,transparent ${w}%);`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PORTFOLIO TAB
+══════════════════════════════════════════════════════════════════════ */
+const SORT_COLS = ['name', 'ticker', 'price', 'asOf', 'dayChg', 'tr5y', 'ytd', 'value', 'pctLiq'];
+function setSort(key) {
+  if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  else { sortKey = key; sortDir = ['name', 'ticker'].includes(key) ? 'asc' : 'desc'; }
+  renderPortfolio();
+}
+function compareRows(a, b) {
+  const av = a[sortKey], bv = b[sortKey];
+  const an = av === null || av === undefined || av === '', bn = bv === null || bv === undefined || bv === '';
+  if (an || bn) return an && bn ? 0 : an ? 1 : -1;     // blanks always last
+  const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).toLowerCase().localeCompare(String(bv).toLowerCase());
+  return sortDir === 'asc' ? cmp : -cmp;
+}
+function sortTh(key, label, cls = '') {
+  const arrow = sortKey === key ? (sortDir === 'asc' ? '▲' : '▼') : '⇕';
+  const op = sortKey === key ? 1 : .55;
+  return `<th class="sortable ${cls}" onclick="setSort('${key}')">${label}<span class="sort-arrow" style="opacity:${op}">${arrow}</span></th>`;
+}
+
+function renderPortfolio() {
+  if (!currentUser) return;
+  const pf = computePortfolio(assets, prices);
+  const { liquid, illiquid, totals: t } = pf;
+  const rows = sortKey === 'order' ? liquid : [...liquid].sort(compareRows);
+
+  // Status line + stale badge
+  const st = document.getElementById('price-status');
+  if (priceStatus && priceStatus.lastRun) {
+    const stale = Date.now() - priceStatus.lastRun > STALE_HOURS * 3600e3;
+    st.innerHTML = `Prices last updated ${escapeHtml(fmtDateTime(priceStatus.lastRun))} ` +
+      (stale ? '<span class="badge badge-stale">stale</span>' : '<span class="badge badge-ok">current</span>');
+  } else {
+    st.textContent = 'Prices have not been fetched yet — click Refresh prices.';
+  }
+
+  // Warnings
+  const warn = [];
+  const errs = (priceStatus && priceStatus.errors) || {};
+  const missing = t.missingPrices.filter(Boolean);
+  if (missing.length) {
+    warn.push(`No price for ${missing.map(m => `<strong>${escapeHtml(m)}</strong>` + (errs[m] ? ` (${escapeHtml(errs[m])})` : '')).join(', ')}. ` +
+      `These are left out of the totals until a price arrives.`);
+  }
+  document.getElementById('pf-warnings').innerHTML = warn.map(w => `<div class="info-box warn">${w}</div>`).join('');
+
+  if (!liquid.length && !illiquid.length) {
+    document.getElementById('pf-table').innerHTML =
+      '<tbody><tr><td class="l" style="padding:20px">No holdings yet. Add them on the Holdings tab.</td></tr></tbody>';
+    return;
+  }
+
+  const c5 = colorScale(liquid.map(r => r.tr5y));
+  const cYtd = colorScale(liquid.map(r => r.ytd));
+  const cAll = colorScale(liquid.map(r => r.pctAll).concat(illiquid.map(r => r.pctAll)));
+  const maxLiq = Math.max(0, ...liquid.map(r => r.pctLiq || 0));
+  const bg = c => c ? ` style="background:${c}"` : '';
+
+  let h = '<thead>';
+  h += '<tr class="grp"><th class="blank" colspan="7"></th><th class="blank gap"></th>' +
+       '<th colspan="3">Liquid assets</th><th colspan="3">All assets</th><th class="blank"></th></tr>';
+  h += '<tr>' + sortTh('name', 'Fund name', 'l') + sortTh('ticker', '', 'l') + sortTh('price', 'Price') + sortTh('asOf', 'As of date') +
+       sortTh('dayChg', 'Day chg') + `<th class="sep sortable" onclick="setSort('tr5y')">5-year<br>total<br>return<span class="sort-arrow">${sortKey === 'tr5y' ? (sortDir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>` +
+       '<th></th><th class="gap"></th>' +
+       sortTh('ytd', 'YTD Tot ret') + sortTh('value', 'Current $K<br>value') + sortTh('pctLiq', '% of<br>liquid<br>assets') +
+       '<th>Tot ret</th><th>Current $K<br>value</th><th>% of all<br>assets</th><th></th></tr></thead><tbody>';
+
+  rows.forEach(r => {
+    const noPrice = r.value === null;
+    h += `<tr class="${r.active ? '' : 'inactive'}">` +
+      `<td class="l"><span class="bank">🏛</span>${escapeHtml(r.name)}</td>` +
+      `<td class="l">${escapeHtml(r.ticker)}</td>` +
+      (noPrice ? `<td class="nodata" colspan="3">no price</td>` :
+        `<td>${fmtNum(r.price, 2)}</td><td>${escapeHtml(fmtDate(r.asOf))}</td>` +
+        `<td class="${r.dayChg < 0 && r.active ? 'neg' : ''}">${fmtParenPct(r.dayChg)}</td>`) +
+      `<td class="sep"${r.active ? bg(c5(r.tr5y)) : ''}>${fmtPct(r.tr5y)}</td><td></td><td class="gap"></td>` +
+      `<td${r.active ? bg(cYtd(r.ytd)) : ''}>${fmtPct(r.ytd)}</td>` +
+      `<td>${fmtNum(r.value, 2)}</td>` +
+      `<td style="${r.active ? dataBar(r.pctLiq, maxLiq) : ''}">${fmtPct(r.pctLiq)}</td>` +
+      `<td${r.active ? bg(cYtd(r.ytd)) : ''}>${fmtPct(r.ytd)}</td>` +
+      `<td>${fmtNum(r.value, 2)}</td>` +
+      `<td${r.active ? bg(cAll(r.pctAll)) : ''}>${fmtPct(r.pctAll)}</td>` +
+      `<td class="l">${escapeHtml(r.ticker)}</td></tr>`;
+  });
+
+  // Liquid totals
+  h += '<tr class="total"><td class="l" colspan="5"></td>' +
+       `<td class="sep">${fmtPct(t.liq5y)}</td><td></td><td class="gap"></td>` +
+       `<td>${fmtPct(t.liqYtd)}</td><td>${fmtNum(t.liqValue, 2)}</td><td>${t.liqValue ? '100%' : ''}</td>` +
+       `<td>${fmtPct(t.liqYtd)}</td><td>${fmtNum(t.liqValue, 1)}</td><td>${fmtPct(t.liqPct)}</td>` +
+       '<td class="l">Liquid assets</td></tr>';
+
+  // Illiquid rows
+  illiquid.forEach(r => {
+    h += '<tr class="illiquid"><td class="l" colspan="5"></td><td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>' +
+      `<td class="assumed">${fmtPct(r.ret)}</td><td>${fmtNum(r.value, 1)}</td>` +
+      `<td${bg(cAll(r.pctAll))}>${fmtPct(r.pctAll)}</td><td class="l">${escapeHtml(r.name)}</td></tr>`;
+  });
+
+  // Grand total
+  h += '<tr class="total"><td class="l" colspan="5"></td><td class="sep" style="border-top:none"></td><td style="border-top:none"></td><td class="gap"></td><td colspan="3" style="border-top:none"></td>' +
+       `<td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 1)}</td><td>${t.allValue ? '100%' : ''}</td><td class="l">All assets</td></tr>`;
+  h += '</tbody>';
+  document.getElementById('pf-table').innerHTML = h;
+}
+
+function exportCsv() {
+  const { liquid, illiquid, totals: t } = computePortfolio(assets, prices);
+  const n = x => typeof x === 'number' && isFinite(x) ? String(+x.toFixed(6)) : '';
+  const lines = [['Type', 'Fund / asset', 'Ticker', 'Units', 'Price', 'As of', 'Day chg', '5-yr total return (ann.)', 'YTD / assumed return', 'Value ($K)', '% of liquid', '% of all']];
+  liquid.forEach(r => lines.push(['Liquid', r.name, r.ticker, n(r.units), n(r.price), r.asOf || '', n(r.dayChg), n(r.tr5y), n(r.ytd), n(r.value), n(r.pctLiq), n(r.pctAll)]));
+  lines.push(['Liquid total', '', '', '', '', '', '', n(t.liq5y), n(t.liqYtd), n(t.liqValue), '1', n(t.liqPct)]);
+  illiquid.forEach(r => lines.push(['Illiquid', r.name, '', '', '', '', '', '', n(r.ret), n(r.value), '', n(r.pctAll)]));
+  lines.push(['All assets', '', '', '', '', '', '', '', n(t.allRet), n(t.allValue), '', '1']);
+  download(`portfolio-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(lines));
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   HOLDINGS TAB — direct editing
+══════════════════════════════════════════════════════════════════════ */
+function sortedAssets(kind) {
+  return Object.entries(assets).map(([id, a]) => ({ id, ...a })).filter(a => a.kind === kind)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+function liquidRowHtml(a) {
+  return `<tr data-id="${escapeHtml(a.id || '')}">` +
+    `<td style="width:110px"><input type="text" class="f-ticker" value="${escapeHtml(a.ticker || '')}" oninput="markDirty()" placeholder="VTSAX"></td>` +
+    `<td><input type="text" class="f-name" value="${escapeHtml(a.name || '')}" oninput="markDirty()" placeholder="(from price feed if blank)"></td>` +
+    `<td class="num" style="width:150px"><input type="number" step="any" min="0" class="f-units" value="${a.units ?? ''}" oninput="markDirty()"></td>` +
+    `<td style="width:60px;text-align:center"><input type="checkbox" class="f-active" ${a.active === false ? '' : 'checked'} onchange="markDirty()"></td>` +
+    `<td style="width:36px"><button class="rm" title="Remove" onclick="removeRow(this)">×</button></td></tr>`;
+}
+function illiquidRowHtml(a) {
+  const ret = typeof a.assumedReturn === 'number' ? +(a.assumedReturn * 100).toFixed(4) : '';
+  return `<tr data-id="${escapeHtml(a.id || '')}">` +
+    `<td><input type="text" class="f-name" value="${escapeHtml(a.name || '')}" oninput="markDirty()" placeholder="Private equity"></td>` +
+    `<td class="num" style="width:160px"><input type="number" step="any" min="0" class="f-value" value="${a.value ?? ''}" oninput="markDirty()"></td>` +
+    `<td class="num" style="width:150px"><input type="number" step="any" class="f-ret" value="${ret}" oninput="markDirty()"></td>` +
+    `<td style="width:36px"><button class="rm" title="Remove" onclick="removeRow(this)">×</button></td></tr>`;
+}
+function renderHoldings() {
+  if (!currentUser) return;
+  document.getElementById('ed-liquid').innerHTML =
+    '<thead><tr><th>Ticker</th><th>Fund name</th><th style="text-align:right">Units</th><th style="text-align:center">Show</th><th></th></tr></thead><tbody>' +
+    sortedAssets('liquid').map(liquidRowHtml).join('') + '</tbody>';
+  document.getElementById('ed-illiquid').innerHTML =
+    '<thead><tr><th>Asset</th><th style="text-align:right">Value ($K)</th><th style="text-align:right">Assumed return (%)</th><th></th></tr></thead><tbody>' +
+    sortedAssets('illiquid').map(illiquidRowHtml).join('') + '</tbody>';
+  holdingsDirty = false;
+  document.getElementById('save-status').textContent = '';
+}
+function markDirty() { holdingsDirty = true; document.getElementById('save-status').textContent = 'Unsaved changes'; }
+function addRow(kind) {
+  const tb = document.querySelector(`#ed-${kind} tbody`);
+  tb.insertAdjacentHTML('beforeend', kind === 'liquid' ? liquidRowHtml({}) : illiquidRowHtml({}));
+  tb.lastElementChild.querySelector('input').focus();
+  markDirty();
+}
+function removeRow(btn) { btn.closest('tr').remove(); markDirty(); }
+function discardEdits() { renderHoldings(); }
+
+// Reads the editor tables into { assets, errors }.
+function readEditor() {
+  const out = {}, errors = [];
+  const seenT = new Set(), seenN = new Set();
+  document.querySelectorAll('#ed-liquid tbody tr').forEach((tr, i) => {
+    const ticker = normTicker(tr.querySelector('.f-ticker').value);
+    const name = tr.querySelector('.f-name').value.trim();
+    const unitsRaw = tr.querySelector('.f-units').value;
+    const units = Number(unitsRaw);
+    if (!ticker && !name && unitsRaw === '') return;          // blank row
+    if (!/^[A-Z0-9-]{1,12}$/.test(ticker)) errors.push(`Liquid row ${i + 1}: enter a valid ticker.`);
+    else if (seenT.has(ticker)) errors.push(`${ticker} is listed twice.`);
+    if (unitsRaw === '' || !isFinite(units) || units < 0) errors.push(`${ticker || 'Liquid row ' + (i + 1)}: units must be a number ≥ 0.`);
+    seenT.add(ticker);
+    out[tr.dataset.id || newId()] = { kind: 'liquid', ticker, name, units, active: tr.querySelector('.f-active').checked, order: i };
+  });
+  document.querySelectorAll('#ed-illiquid tbody tr').forEach((tr, i) => {
+    const name = tr.querySelector('.f-name').value.trim();
+    const valueRaw = tr.querySelector('.f-value').value, retRaw = tr.querySelector('.f-ret').value;
+    if (!name && valueRaw === '' && retRaw === '') return;
+    const value = Number(valueRaw), ret = Number(retRaw);
+    if (!name) errors.push(`Illiquid row ${i + 1}: enter a name.`);
+    else if (seenN.has(name.toLowerCase())) errors.push(`"${name}" is listed twice.`);
+    if (valueRaw === '' || !isFinite(value) || value < 0) errors.push(`${name || 'Illiquid row ' + (i + 1)}: value must be a number ≥ 0.`);
+    if (retRaw !== '' && !isFinite(ret)) errors.push(`${name}: assumed return must be a number.`);
+    seenN.add(name.toLowerCase());
+    const a = { kind: 'illiquid', name, value, order: 1000 + i };
+    if (retRaw !== '') a.assumedReturn = ret / 100;
+    out[tr.dataset.id || newId()] = a;
+  });
+  return { assets: out, errors };
+}
+function newId() { return db.ref('household/assets').push().key; }
+
+async function saveHoldings() {
+  const { assets: next, errors } = readEditor();
+  if (errors.length) { alert('Please fix these first:\n\n' + errors.join('\n')); return; }
+  const btn = document.getElementById('btn-save');
+  btn.disabled = true;
+  try {
+    const before = new Set(Object.values(assets).filter(a => a.kind === 'liquid').map(a => normTicker(a.ticker)));
+    await db.ref('household/assets').set(next);
+    await db.ref('household/uploads').push({ at: firebase.database.ServerValue.TIMESTAMP, by: currentUser.email, source: 'editor' });
+    holdingsDirty = false;
+    renderHoldings();
+    document.getElementById('save-status').textContent = 'Saved.';
+    const added = Object.values(next).filter(a => a.kind === 'liquid' && !before.has(a.ticker));
+    if (added.length) refreshPrices(true);   // fetch prices for new tickers right away
+  } catch (e) {
+    alert('Could not save holdings: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   HOLDINGS TAB — file upload with preview
+══════════════════════════════════════════════════════════════════════ */
+function toCsv(rows) {
+  return rows.map(r => r.map(v => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(',')).join('\r\n') + '\r\n';
+}
+function download(filename, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function downloadTemplate() {
+  const rows = [['type', 'ticker', 'name', 'units', 'value_k', 'assumed_return_pct']];
+  const liq = sortedAssets('liquid'), ill = sortedAssets('illiquid');
+  liq.forEach(a => rows.push(['liquid', a.ticker, a.name || '', a.units ?? '', '', '']));
+  ill.forEach(a => rows.push(['illiquid', '', a.name, '', a.value ?? '', typeof a.assumedReturn === 'number' ? +(a.assumedReturn * 100).toFixed(4) : '']));
+  if (!liq.length && !ill.length) {
+    rows.push(['liquid', 'VTSAX', 'Vanguard Total Stock Market Index Fund Admiral', '100', '', '']);
+    rows.push(['illiquid', '', 'Private equity', '', '250.0', '11']);
+  }
+  download('holdings-template.csv', toCsv(rows));
+}
+
+// Minimal RFC-4180 CSV parser (quoted fields, embedded commas/quotes/newlines).
+function parseCsv(text) {
+  const rows = []; let row = [], field = '', q = false;
+  text = text.replace(/^﻿/, '');
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+      else field += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(v => String(v).trim() !== ''));
+}
+function loadScript(src) {
+  return new Promise((ok, fail) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = ok; s.onerror = () => fail(new Error('Could not load the Excel reader'));
+    document.head.appendChild(s);
+  });
+}
+async function readUploadRows(file) {
+  if (/\.csv$/i.test(file.name)) return parseCsv(await file.text());
+  if (!window.XLSX) await loadScript(SHEETJS_URL);
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+}
+function num(v) {
+  if (typeof v === 'number') return v;
+  const s = String(v ?? '').replace(/[$,%\s]/g, '');
+  if (s === '') return null;
+  const neg = /^\(.*\)$/.test(s);
+  const n = Number(s.replace(/[()]/g, ''));
+  return isFinite(n) ? (neg ? -n : n) : NaN;
+}
+
+// Turns raw rows (first row = headers) into a list of proposed changes against current assets.
+function buildUploadPlan(rawRows, current) {
+  if (!rawRows.length) return { items: [], errors: ['The file is empty.'] };
+  const hdr = rawRows[0].map(h => String(h).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
+  const col = (...names) => names.map(n => hdr.indexOf(n)).find(i => i >= 0) ?? -1;
+  const cType = col('type', 'kind'), cTicker = col('ticker', 'symbol'), cName = col('name', 'fund_name', 'asset');
+  const cUnits = col('units', 'shares', 'quantity'), cValue = col('value_k', 'value', 'current_value');
+  const cRet = col('assumed_return_pct', 'assumed_return', 'return_pct', 'return');
+  const errors = [];
+  if (cTicker < 0 && cName < 0) errors.push('No "ticker" or "name" column found — use the template headers.');
+
+  const curList = Object.entries(current || {}).map(([id, a]) => ({ id, ...a }));
+  const byTicker = new Map(curList.filter(a => a.kind === 'liquid').map(a => [normTicker(a.ticker), a]));
+  const byName = new Map(curList.filter(a => a.kind === 'illiquid').map(a => [String(a.name).trim().toLowerCase(), a]));
+  const items = [], seen = new Set();
+
+  rawRows.slice(1).forEach((r, i) => {
+    const line = i + 2;
+    const get = c => c >= 0 ? r[c] : '';
+    const ticker = normTicker(get(cTicker));
+    const name = String(get(cName) ?? '').trim();
+    let type = String(get(cType) ?? '').trim().toLowerCase();
+    if (!type) type = ticker ? 'liquid' : 'illiquid';
+    if (type !== 'liquid' && type !== 'illiquid') { items.push({ line, status: 'error', label: ticker || name, msg: `Type must be "liquid" or "illiquid".` }); return; }
+
+    if (type === 'liquid') {
+      const units = num(get(cUnits));
+      if (!/^[A-Z0-9-]{1,12}$/.test(ticker)) { items.push({ line, status: 'error', label: ticker || name, msg: 'Missing or invalid ticker.' }); return; }
+      if (units === null || Number.isNaN(units) || units < 0) { items.push({ line, status: 'error', label: ticker, msg: 'Units must be a number ≥ 0.' }); return; }
+      if (seen.has('L:' + ticker)) { items.push({ line, status: 'error', label: ticker, msg: 'Listed twice in the file.' }); return; }
+      seen.add('L:' + ticker);
+      const cur = byTicker.get(ticker);
+      const nameChanged = name && cur && name !== (cur.name || '');
+      const status = !cur ? 'new' : (Math.abs((Number(cur.units) || 0) - units) > 1e-9 || nameChanged) ? 'changed' : 'same';
+      items.push({ line, status, kind: 'liquid', label: ticker, id: cur && cur.id, ticker, name: name || (cur && cur.name) || '',
+        oldText: cur ? `${fmtNum(Number(cur.units) || 0, 3)} units` : '', newText: `${fmtNum(units, 3)} units`, units });
+    } else {
+      const value = num(get(cValue));
+      const retPct = num(get(cRet));
+      if (!name) { items.push({ line, status: 'error', label: '', msg: 'Illiquid rows need a name.' }); return; }
+      if (value === null || Number.isNaN(value) || value < 0) { items.push({ line, status: 'error', label: name, msg: 'value_k must be a number ≥ 0.' }); return; }
+      if (Number.isNaN(retPct)) { items.push({ line, status: 'error', label: name, msg: 'assumed_return_pct must be a number (e.g. 6 for 6%).' }); return; }
+      const key = name.toLowerCase();
+      if (seen.has('I:' + key)) { items.push({ line, status: 'error', label: name, msg: 'Listed twice in the file.' }); return; }
+      seen.add('I:' + key);
+      const cur = byName.get(key);
+      const ret = retPct === null ? (cur && typeof cur.assumedReturn === 'number' ? cur.assumedReturn : null) : retPct / 100;
+      const curRet = cur && typeof cur.assumedReturn === 'number' ? cur.assumedReturn : null;
+      const status = !cur ? 'new' : (Math.abs((Number(cur.value) || 0) - value) > 1e-9 || Math.abs((curRet ?? 0) - (ret ?? 0)) > 1e-9) ? 'changed' : 'same';
+      const txt = (v, r) => `$${fmtNum(v, 1)}K` + (r === null ? '' : ` @ ${fmtPct(r)}`);
+      items.push({ line, status, kind: 'illiquid', label: name, id: cur && cur.id, name,
+        oldText: cur ? txt(Number(cur.value) || 0, curRet) : '', newText: txt(value, ret), value, assumedReturn: ret });
+    }
+  });
+  return { items, errors };
+}
+
+async function handleUpload(input) {
+  const file = input.files && input.files[0];
+  const box = document.getElementById('upload-preview');
+  pendingUpload = null;
+  if (!file) { box.innerHTML = ''; return; }
+  try {
+    const plan = buildUploadPlan(await readUploadRows(file), assets);
+    plan.filename = file.name;
+    pendingUpload = plan;
+    renderUploadPreview();
+  } catch (e) {
+    box.innerHTML = `<div class="info-box danger" style="margin-top:12px">Could not read ${escapeHtml(file.name)}: ${escapeHtml(e.message)}</div>`;
+  }
+}
+function renderUploadPreview() {
+  const box = document.getElementById('upload-preview');
+  const p = pendingUpload;
+  if (!p) { box.innerHTML = ''; return; }
+  const bad = p.items.filter(i => i.status === 'error');
+  const changes = p.items.filter(i => i.status === 'new' || i.status === 'changed');
+  const label = { new: 'New', changed: 'Changed', same: 'No change', error: 'Error' };
+  let h = '';
+  if (p.errors.length) h += `<div class="info-box danger" style="margin-top:12px">${p.errors.map(escapeHtml).join('<br>')}</div>`;
+  h += `<table class="preview"><thead><tr><th>Row</th><th>Type</th><th>Ticker / name</th><th>Current</th><th>New</th><th>Status</th></tr></thead><tbody>` +
+    p.items.map(i => `<tr class="st-${i.status}"><td>${i.line}</td><td>${escapeHtml(i.kind || '')}</td><td>${escapeHtml(i.label)}</td>` +
+      `<td>${escapeHtml(i.oldText || '')}</td><td>${escapeHtml(i.newText || '')}</td>` +
+      `<td>${i.status === 'error' ? escapeHtml(i.msg) : label[i.status]}</td></tr>`).join('') + '</tbody></table>';
+  h += `<div class="row-actions">` +
+    `<button class="btn btn-primary btn-sm" onclick="confirmUpload()" ${bad.length || p.errors.length || !changes.length ? 'disabled' : ''}>` +
+    `Save ${changes.length} change${changes.length === 1 ? '' : 's'}</button>` +
+    `<button class="btn btn-secondary btn-sm" onclick="cancelUpload()">Cancel</button>` +
+    `<span class="status">${bad.length ? `Fix the ${bad.length} error row(s) in the file and upload it again.` : !changes.length ? 'Nothing to change.' : 'Holdings not in the file stay as they are.'}</span></div>`;
+  box.innerHTML = h;
+}
+function cancelUpload() {
+  pendingUpload = null;
+  document.getElementById('upload-file').value = '';
+  renderUploadPreview();
+}
+async function confirmUpload() {
+  const p = pendingUpload;
+  if (!p) return;
+  if (holdingsDirty && !confirm('You have unsaved edits in the tables below. Saving the upload will discard them. Continue?')) return;
+  const changes = p.items.filter(i => i.status === 'new' || i.status === 'changed');
+  const maxOrder = kind => Math.max(kind === 'liquid' ? -1 : 999, ...Object.values(assets).filter(a => a.kind === kind).map(a => a.order ?? 0));
+  let nextL = maxOrder('liquid') + 1, nextI = maxOrder('illiquid') + 1;
+  const updates = {};
+  changes.forEach(i => {
+    const id = i.id || newId();
+    const base = assets[id] || {};
+    if (i.kind === 'liquid') {
+      updates[id] = { ...base, kind: 'liquid', ticker: i.ticker, name: i.name, units: i.units, active: base.active !== false, order: base.order ?? nextL++ };
+    } else {
+      const a = { ...base, kind: 'illiquid', name: i.name, value: i.value, order: base.order ?? nextI++ };
+      if (i.assumedReturn === null) delete a.assumedReturn; else a.assumedReturn = i.assumedReturn;
+      updates[id] = a;
+    }
+  });
+  try {
+    await db.ref('household/assets').update(updates);
+    await db.ref('household/uploads').push({
+      at: firebase.database.ServerValue.TIMESTAMP, by: currentUser.email, source: 'file', filename: p.filename,
+      changed: changes.length,
+    });
+    const newTickers = changes.some(i => i.kind === 'liquid' && i.status === 'new');
+    cancelUpload();
+    renderHoldings();
+    alert(`Saved ${changes.length} change(s).`);
+    if (newTickers) refreshPrices(true);
+  } catch (e) {
+    alert('Could not save the upload: ' + e.message);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   ACCOUNT TAB — change password
+══════════════════════════════════════════════════════════════════════ */
+// Mirrors the Firebase Auth password policy set in SETUP.md (Firebase enforces it server-side).
+const PW_RULES = [
+  ['At least 12 characters', p => p.length >= 12],
+  ['An uppercase letter', p => /[A-Z]/.test(p)],
+  ['A lowercase letter', p => /[a-z]/.test(p)],
+  ['A number', p => /[0-9]/.test(p)],
+  ['A symbol (e.g. ! # $ %)', p => /[^A-Za-z0-9]/.test(p)],
+];
+function renderPwRules() {
+  const p = document.getElementById('pw-new').value, p2 = document.getElementById('pw-new2').value;
+  const rules = PW_RULES.map(([t, f]) => [t, f(p)]).concat([['Both new passwords match', p !== '' && p === p2]]);
+  document.getElementById('pw-rules').innerHTML = rules.map(([t, ok]) => `<li class="${ok ? 'ok' : ''}">${t}</li>`).join('');
+  return rules.every(([, ok]) => ok);
+}
+async function changePassword() {
+  setMsg('pw-err', '');
+  const cur = document.getElementById('pw-cur').value, p = document.getElementById('pw-new').value;
+  if (!cur) { setMsg('pw-err', 'Enter your current password.'); return; }
+  if (!renderPwRules()) { setMsg('pw-err', 'The new password does not meet every rule above.'); return; }
+  try {
+    const user = auth.currentUser;
+    await user.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(user.email, cur));
+    await user.updatePassword(p);
+    ['pw-cur', 'pw-new', 'pw-new2'].forEach(id => document.getElementById(id).value = '');
+    renderPwRules();
+    alert('Password changed.');
+  } catch (e) {
+    setMsg('pw-err', authErrorText(e));
+  }
+}
+</script>
+</body>
+</html>
