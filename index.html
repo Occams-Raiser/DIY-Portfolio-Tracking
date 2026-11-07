@@ -149,6 +149,7 @@
   table.pf td.sep, table.pf th.sep { border-left: 1px solid #333; }
   table.pf tr.inactive td { color: #c4c4c4; }
   table.pf tr.total td { font-weight: 700; border-top: 1px solid #333; border-bottom: none; }
+  table.pf tr.total td.part { font-weight: 400; border-top: none; border-bottom: 1px solid #f0f0f0; }
   table.pf tr.illiquid td.assumed { color: #b5b5b5; }
   table.pf td.neg { color: var(--red); }
   table.pf td.nodata { color: #b5b5b5; font-style: italic; }
@@ -248,7 +249,8 @@
       <p class="desc" style="margin-top:14px">
         $ values in thousands. Returns are total returns (dividends reinvested). 5-year total return is annualized;
         its liquid total is value-weighted over funds with 5 years of history. Illiquid returns (gray) are your
-        assumed annual returns. Prices are end-of-day closes.
+        assumed annual returns. Prices are end-of-day closes from Tiingo; an "As of" time (ET) means the price is a newer
+        quote from Yahoo Finance, used until Tiingo catches up.
       </p>
     </div>
 
@@ -531,6 +533,8 @@ function computePortfolio(assetMap, priceMap) {
       active: a.active !== false,
       units, price,
       asOf: p ? p.asOf : null,
+      asOfTime: p ? p.asOfTime || null : null,
+      source: p ? p.source || 'tiingo' : null,
       dayChg: p ? p.dayChg ?? null : null,
       ytd: p ? p.ytd ?? null : null,
       tr5y: p ? p.tr5y ?? null : null,
@@ -589,6 +593,15 @@ function fmtDate(iso) {
   if (!iso) return '';
   const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
   return `${m}/${d}/${y}`;
+}
+// Yahoo quotes carry a time (shown in ET, like the spreadsheet's "11/6/2026 23:45");
+// Tiingo end-of-day closes show the date only.
+function fmtAsOf(r) {
+  if (r.source === 'yahoo' && r.asOfTime) {
+    const t = new Date(r.asOfTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    return `${fmtDate(r.asOf)} ${t}`;
+  }
+  return fmtDate(r.asOf);
 }
 function fmtDateTime(ms) {
   if (!ms) return '';
@@ -690,35 +703,36 @@ function renderPortfolio() {
       `<td class="l"><span class="bank">🏛</span>${escapeHtml(r.name)}</td>` +
       `<td class="l">${escapeHtml(r.ticker)}</td>` +
       (noPrice ? `<td class="nodata" colspan="3">no price</td>` :
-        `<td>${fmtNum(r.price, 2)}</td><td>${escapeHtml(fmtDate(r.asOf))}</td>` +
+        `<td>${fmtNum(r.price, 2)}</td><td title="${r.source === 'yahoo' ? 'Latest quote from Yahoo Finance' : 'End-of-day close from Tiingo'}">${escapeHtml(fmtAsOf(r))}</td>` +
         `<td class="${r.dayChg < 0 && r.active ? 'neg' : ''}">${fmtParenPct(r.dayChg)}</td>`) +
       `<td class="sep"${r.active ? bg(c5(r.tr5y)) : ''}>${fmtPct(r.tr5y)}</td><td></td><td class="gap"></td>` +
       `<td${r.active ? bg(cYtd(r.ytd)) : ''}>${fmtPct(r.ytd)}</td>` +
-      `<td>${fmtNum(r.value, 2)}</td>` +
+      `<td>${fmtNum(r.value, 0)}</td>` +
       `<td style="${r.active ? dataBar(r.pctLiq, maxLiq) : ''}">${fmtPct(r.pctLiq)}</td>` +
       `<td${r.active ? bg(cYtd(r.ytd)) : ''}>${fmtPct(r.ytd)}</td>` +
-      `<td>${fmtNum(r.value, 2)}</td>` +
+      `<td>${fmtNum(r.value, 0)}</td>` +
       `<td${r.active ? bg(cAll(r.pctAll)) : ''}>${fmtPct(r.pctAll)}</td>` +
       `<td class="l">${escapeHtml(r.ticker)}</td></tr>`;
   });
 
-  // Liquid totals
+  // Liquid totals — Liquid-assets columns only. The All-assets columns are left blank here:
+  // the funds are already itemized above, so that column reads funds + illiquid assets = the
+  // bold All assets total at the bottom (as in the household spreadsheet).
   h += '<tr class="total"><td class="l" colspan="5"></td>' +
        `<td class="sep">${fmtPct(t.liq5y)}</td><td></td><td class="gap"></td>` +
-       `<td>${fmtPct(t.liqYtd)}</td><td>${fmtNum(t.liqValue, 2)}</td><td>${t.liqValue ? '100%' : ''}</td>` +
-       `<td>${fmtPct(t.liqYtd)}</td><td>${fmtNum(t.liqValue, 1)}</td><td>${fmtPct(t.liqPct)}</td>` +
-       '<td class="l">Liquid assets</td></tr>';
+       `<td>${fmtPct(t.liqYtd)}</td><td>${fmtNum(t.liqValue, 0)}</td><td>${t.liqValue ? '100%' : ''}</td>` +
+       '<td class="part" colspan="3"></td><td class="l part"></td></tr>';
 
   // Illiquid rows
   illiquid.forEach(r => {
     h += '<tr class="illiquid"><td class="l" colspan="5"></td><td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>' +
-      `<td class="assumed">${fmtPct(r.ret)}</td><td>${fmtNum(r.value, 1)}</td>` +
+      `<td class="assumed">${fmtPct(r.ret)}</td><td>${fmtNum(r.value, 0)}</td>` +
       `<td${bg(cAll(r.pctAll))}>${fmtPct(r.pctAll)}</td><td class="l">${escapeHtml(r.name)}</td></tr>`;
   });
 
-  // Grand total
-  h += '<tr class="total"><td class="l" colspan="5"></td><td class="sep" style="border-top:none"></td><td style="border-top:none"></td><td class="gap"></td><td colspan="3" style="border-top:none"></td>' +
-       `<td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 1)}</td><td>${t.allValue ? '100%' : ''}</td><td class="l">All assets</td></tr>`;
+  // Grand total (liquid + illiquid)
+  h += '<tr class="total"><td class="l" colspan="5" style="border-top:none"></td><td class="sep" style="border-top:none"></td><td style="border-top:none"></td><td class="gap" style="border-top:none"></td><td colspan="3" style="border-top:none"></td>' +
+       `<td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 0)}</td><td>${t.allValue ? '100%' : ''}</td><td class="l">All assets</td></tr>`;
   h += '</tbody>';
   document.getElementById('pf-table').innerHTML = h;
 }
