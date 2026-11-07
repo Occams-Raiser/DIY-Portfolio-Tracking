@@ -278,7 +278,7 @@
   <div id="screen-app" class="card wide hidden">
     <div class="tabs">
       <button class="tab active" onclick="switchTab('app','portfolio',this)">Portfolio</button>
-      <button class="tab" onclick="switchTab('app','holdings',this)">Holdings</button>
+      <button class="tab" onclick="switchTab('app','holdings',this)">Setup</button>
       <button class="tab" onclick="switchTab('app','account',this)">Account</button>
     </div>
 
@@ -321,7 +321,7 @@
             <p class="desc" style="margin-top:14px">
               Returns are value-weighted averages. Gray returns come only from illiquid assets' assumed annual returns,
               which are used for both the YTD and 5-year columns; funds without 5 years of history are left out of the 5-year
-              average. Holdings with no asset class set are grouped under "Unclassified" — set the class on the Holdings tab.
+              average. Holdings with no asset class set are grouped under "Unclassified" — set the class on the Setup tab.
             </p>
           </div>
         </div>
@@ -329,7 +329,7 @@
       </div>
     </div>
 
-    <!-- Holdings -->
+    <!-- Setup tab (holdings editor + upload) -->
     <div class="tab-pane" id="tab-app-holdings">
       <h3 style="margin-top:0">Upload a file</h3>
       <p class="desc">
@@ -842,7 +842,7 @@ function renderPortfolio() {
 
   if (!liquid.length && !illiquid.length) {
     document.getElementById('pf-table').innerHTML =
-      '<tbody><tr><td class="l" style="padding:20px">No holdings yet. Add them on the Holdings tab.</td></tr></tbody>';
+      '<tbody><tr><td class="l" style="padding:20px">No holdings yet. Add them on the Setup tab.</td></tr></tbody>';
     renderAllocation(pf);
     return;
   }
