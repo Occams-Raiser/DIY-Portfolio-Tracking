@@ -193,6 +193,8 @@
   table.owners td.oname { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
   table.owners td.nodata { color: #b5b5b5; font-style: italic; }
   table.owners .share-mark { color: #888; margin-left: 1px; }
+  table.owners th.ocol, table.owners td.ocol { min-width: 58px; padding-left: 8px; padding-right: 8px; }
+  table.owners .ofirst { border-left: 1px solid #333; }
 
   /* ── Portfolio slide deck + Present (full-screen) mode (GTIA style guide §20, §20a).
      The slides are tables, so presenting scales the whole slide (fitPresentZoom) rather than
@@ -382,7 +384,8 @@
               $ values in thousands, at current prices; liquid and illiquid accounts together. An account with two
               beneficiaries, or a joint one ("Dan &amp; Alison"), is split equally between them, so a filtered value marked
               <strong>*</strong> is a share of the account (hover to see it). "% of total assets" is a share of everything the
-              selected account owners hold. Your filter choices are remembered on this device; <strong>Reset all</strong> selects everything.
+              selected account owners hold. The columns on the right split the value by account owner (WROS = Dan &amp; Alison
+              jointly), one column per selected owner. Your filter choices are remembered on this device; <strong>Reset all</strong> selects everything.
             </p>
           </div>
 
@@ -1308,8 +1311,31 @@ function computeOwnerSlide(pf) {
     return { cls, rows, value, pct: base ? value / base : null, open: ownerExpanded.has(cls) };
   }).filter(g => g.rows.length);
   const total = groups.reduce((s, g) => s + g.value, 0);
-  return { opts, groups, base, total, pct: base ? total / base : null, count: shown.length };
+  // One value column per selected account owner (short headers); owners not on the pick list,
+  // or "(none)", get a column only when an account has them.
+  const inData = new Set(accts.map(a => a.owner));
+  const ownerCols = opts.owner
+    .filter(o => isSelected('owner', o) && (ACCOUNT_OWNERS.includes(o) || inData.has(o)))
+    .map(o => ({ owner: o, labelHtml: OWNER_COLUMN_LABELS[o] || escapeHtml(o === NO_VALUE ? 'No owner' : o) }))
+    .sort((x, y) => {
+      const p = o => { const i = OWNER_COLUMN_ORDER.indexOf(o); return i < 0 ? (o === NO_VALUE ? 1e6 : 1e5) : i; };
+      return p(x.owner) - p(y.owner);
+    });
+  const byOwner = rows => {
+    const m = {};
+    rows.forEach(a => { if (a.shownValue !== null) m[a.owner] = (m[a.owner] || 0) + a.shownValue; });
+    return m;
+  };
+  groups.forEach(g => { g.byOwner = byOwner(g.rows); });
+  return { opts, groups, base, total, pct: base ? total / base : null, count: shown.length,
+           ownerCols, totalByOwner: byOwner(shown) };
 }
+// Short column headers for the owner columns, in the order they're listed.
+const OWNER_COLUMN_LABELS = {
+  'Dan & Alison': 'WROS', 'Dan': 'Dan', 'Alison': 'Alison', 'DS Family Trust': 'DS Fam<br>Trust',
+  'AS Family Trust': 'AS Fam<br>Trust', 'Lauren': 'Lauren', 'Trust for Lauren': 'Trust<br>Lauren', 'Trust for Jodie': 'Trust<br>Jodie',
+};
+const OWNER_COLUMN_ORDER = ['Dan & Alison', 'Dan', 'Alison', 'DS Family Trust', 'AS Family Trust', 'Lauren', 'Trust for Lauren', 'Trust for Jodie'];
 
 /* ── Shortcut buttons: they set their filter (Beneficiary or Account owner) to exactly what the
    buttons that are on cover; with none on, everything is selected. A button shows "on" when all
@@ -1411,28 +1437,35 @@ function renderOwnerSlide(pf) {
   });
 
   const maxPct = Math.max(0, ...d.groups.map(g => g.pct || 0));
-  let h = '<thead><tr><th class="l">Asset class</th><th class="l">Account owner</th><th class="l">Name</th>' +
-    '<th>Value<br>$K</th><th>% of total<br>assets</th></tr></thead><tbody>';
+  // Owner columns: a class row splits its value by owner; an account row shows its value under its owner.
+  const amt = v => typeof v === 'number' && Math.abs(v) >= 0.5 ? fmtNum(v, 0) : '';
+  const ownerCells = (m, first) => d.ownerCols.map((c, i) => `<td class="ocol${i === 0 ? ' ofirst' : ''}">${amt(m[c.owner])}</td>`).join('');
+  const nCols = 4 + d.ownerCols.length;
+  let h = '<thead><tr><th class="l">Asset class</th><th class="l">Name</th>' +
+    '<th>Value<br>$K</th><th>% of total<br>assets</th>' +
+    d.ownerCols.map((c, i) => `<th class="ocol${i === 0 ? ' ofirst' : ''}" title="${escapeHtml(c.owner)}">${c.labelHtml}</th>`).join('') +
+    '</tr></thead><tbody>';
   if (!d.groups.length) {
-    h += `<tr><td class="l muted" colspan="5" style="padding:12px">No accounts match these filters.</td></tr>`;
+    h += `<tr><td class="l muted" colspan="${nCols}" style="padding:12px">No accounts match these filters.</td></tr>`;
   }
   d.groups.forEach(g => {
     h += `<tr class="class-row" onclick="toggleOwnerGroup(this.dataset.cls)" data-cls="${escapeHtml(g.cls)}" title="${g.open ? 'Collapse' : 'Expand'}">` +
-      `<td class="l" colspan="3"><span class="caret">${g.open ? '▾' : '▸'}</span>${escapeHtml(g.cls)} <span class="cnt">(${g.rows.length})</span></td>` +
-      `<td>${fmtNum(g.value, 0)}</td><td style="${dataBar(g.pct, maxPct)}">${fmtPct(g.pct, 1)}</td></tr>`;
+      `<td class="l" colspan="2"><span class="caret">${g.open ? '▾' : '▸'}</span>${escapeHtml(g.cls)} <span class="cnt">(${g.rows.length})</span></td>` +
+      `<td>${fmtNum(g.value, 0)}</td><td style="${dataBar(g.pct, maxPct)}">${fmtPct(g.pct, 1)}</td>${ownerCells(g.byOwner)}</tr>`;
     if (!g.open) return;
     g.rows.forEach(a => {
       const part = a.frac < 0.999 && a.value !== null ? ` title="${Math.round(a.frac * 100)}% share of ${fmtNum(a.value, 0)}"` : '';
       const nm = a.ticker && a.name !== a.ticker ? `${a.name} (${a.ticker})` : a.name || a.ticker;
-      h += `<tr class="in-class"><td></td><td class="l">${escapeHtml(a.owner)}</td>` +
-        `<td class="l oname" title="${escapeHtml(nm)}">${escapeHtml(nm)}</td>` +
+      h += `<tr class="in-class"><td></td>` +
+        `<td class="l oname" title="${escapeHtml(nm)} — ${escapeHtml(a.owner)}">${escapeHtml(nm)}</td>` +
         (a.shownValue === null ? `<td class="nodata">no price</td><td></td>`
           : `<td${part}>${fmtNum(a.shownValue, 0)}${part ? '<span class="share-mark">*</span>' : ''}</td>` +
-            `<td style="${dataBar(d.base ? a.shownValue / d.base : null, maxPct)}">${fmtPct(d.base ? a.shownValue / d.base : null, 1)}</td>`) + `</tr>`;
+            `<td style="${dataBar(d.base ? a.shownValue / d.base : null, maxPct)}">${fmtPct(d.base ? a.shownValue / d.base : null, 1)}</td>`) +
+        ownerCells(a.shownValue === null ? {} : { [a.owner]: a.shownValue }) + `</tr>`;
     });
   });
-  h += `<tr class="total"><td class="l" colspan="3">Total <span class="cnt">(${d.count} account${d.count === 1 ? '' : 's'})</span></td>` +
-    `<td>${fmtNum(d.total, 0)}</td><td>${fmtPct(d.pct, 1)}</td></tr></tbody>`;
+  h += `<tr class="total"><td class="l" colspan="2">Total <span class="cnt">(${d.count} account${d.count === 1 ? '' : 's'})</span></td>` +
+    `<td>${fmtNum(d.total, 0)}</td><td>${fmtPct(d.pct, 1)}</td>${ownerCells(d.totalByOwner)}</tr></tbody>`;
   tbl.innerHTML = h;
   fitPresentZoom();
 }
