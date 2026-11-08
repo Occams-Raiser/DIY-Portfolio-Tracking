@@ -164,6 +164,19 @@
   .pf-group-btns { display: flex; gap: 8px; margin: 0 0 8px; }
   /* Equity rows inside "Equities": flag + size, right-aligned in the first column next to the name. */
   td.tagcell { text-align: right; padding-right: 4px; }
+  /* Tax Liabilities tables */
+  table.taxl td.taxdue { color: var(--red); }
+  table.taxl tr.total td.taxdue { color: var(--red); }
+  table.taxl tr.total.top td { border-top: none; border-bottom: 1px solid #333; }
+  table.taxl tr.class-row { cursor: pointer; }
+  table.taxl tr.class-row td { font-weight: 600; border-bottom: 1px solid #e2e2e2; }
+  table.taxl tr.class-row:hover td:first-child { color: var(--orange); }
+  table.taxl tr.class-row .caret { display: inline-block; width: 16px; color: #888; }
+  table.taxl .cnt { font-weight: 400; color: #999; }
+  table.taxl tr.in-class td.oname { padding-left: 30px; }
+  table.taxl td.oname { max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+  table.taxl td.nodata { color: #b5b5b5; font-style: italic; }
+  table.taxl caption.tax-warn { caption-side: top; text-align: left; color: #7a5a00; background: #fff3cd; padding: 6px 10px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
   table.tax-rates { border-collapse: collapse; margin: 4px 0 6px; width: auto; min-width: 440px; }
   table.tax-rates th { text-align: left; font-size: 13px; color: #555; padding: 6px 10px; border-bottom: 1px solid #ccc; }
   table.tax-rates td { padding: 6px 10px; border-bottom: 1px solid #f0f0f0; }
@@ -498,10 +511,29 @@
 
     <!-- Tax Liabilities: collapsible sections (GTIA style guide §10a). Only Admins can edit. -->
     <div class="tab-pane" id="tab-app-tax">
-      <h3 style="margin-top:0;cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('tax-rates')">
-        <span id="section-arrow-tax-rates" style="display:inline-block;width:16px">▾</span>Tax rates
+      <h3 style="margin-top:0;cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('tax-liability')">
+        <span id="section-arrow-tax-liability" style="display:inline-block;width:16px">▾</span>Tax liability
       </h3>
-      <div id="section-body-tax-rates">
+      <div id="section-body-tax-liability">
+        <p class="desc">Estimated taxes due if every account (except Cash) were sold or withdrawn today, at the rates in
+          Tax rates below. Click a type to see its accounts.</p>
+        <div class="tbl-wrap"><table class="alloc taxl" id="tax-liability-table"></table></div>
+      </div>
+
+      <h3 style="cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('tax-calc')">
+        <span id="section-arrow-tax-calc" style="display:inline-block;width:16px">▸</span>Calculations
+      </h3>
+      <div id="section-body-tax-calc" class="hidden">
+        <p class="desc">One row per account, Cash excluded. Gain = current value − cost basis (from the Setup tab); Tax due =
+          Gain × the rate for the account's type (Retirement: Roth or Traditional; otherwise non-retirement capital gains).
+          A loss gives a negative tax due, which offsets the others.</p>
+        <div class="tbl-wrap"><table class="alloc taxl" id="tax-calc-table"></table></div>
+      </div>
+
+      <h3 style="cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('tax-rates')">
+        <span id="section-arrow-tax-rates" style="display:inline-block;width:16px">▸</span>Tax rates
+      </h3>
+      <div id="section-body-tax-rates" class="hidden">
         <p class="desc">
           The tax rate that applies to each kind of account, used to estimate tax liabilities. Enter percentages
           (e.g. <code>24</code> for 24%). <span id="tax-readonly-note" class="hidden">Only Admins can change these.</span>
@@ -641,6 +673,7 @@ function switchTab(scope, name, btn) {
   document.getElementById(`tab-${scope}-${name}`)?.classList.add('active');
   if (name === 'holdings' && !holdingsDirty) renderHoldings();
   if (name === 'tax' && !taxDirty) renderTaxRates();
+  if (name === 'tax') renderTaxLiabilities();
   if (name === 'account') {
     renderPwRules();
     if (currentUser && currentUser.isAdmin) { renderPwRulesFor('new-pw', 'new-pw2', 'new-pw-rules'); loadAdminUsers(); }
@@ -762,7 +795,7 @@ function startApp() {
     });
     listeners.push(() => ref.off('value', cb));
   };
-  sub('household/taxRates', v => { taxRates = v || {}; if (!taxDirty) renderTaxRates(); });
+  sub('household/taxRates', v => { taxRates = v || {}; if (!taxDirty) renderTaxRates(); renderTaxLiabilities(); });
   sub('household/options', v => { rebuildLists(v); renderPortfolio(); if (!holdingsDirty) renderHoldings(); });
   sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); convertAccountsIfNeeded(); });
   sub('prices', v => { prices = v || {}; renderPortfolio(); });
@@ -855,7 +888,7 @@ function computePortfolio(assetMap, priceMap) {
       id: a.id, order: a.order ?? 0, ticker: t,
       assetClass: a.assetClass || '',
       owner: a.owner || '',
-      beneficiary: a.beneficiary || '', beneficiary2: a.beneficiary2 || '',
+      beneficiary: a.beneficiary || '', beneficiary2: a.beneficiary2 || '', retirement: a.retirement || '', costBasis: Number(a.costBasis) || 0,
       name: a.name || (p && p.name) || t,
       active: a.active !== false,
       units, price,
@@ -878,7 +911,7 @@ function computePortfolio(assetMap, priceMap) {
       id: a.id, order: a.order ?? 0, name: a.name,
       assetClass: a.assetClass || '',
       owner: a.owner || '',
-      beneficiary: a.beneficiary || '', beneficiary2: a.beneficiary2 || '',
+      beneficiary: a.beneficiary || '', beneficiary2: a.beneficiary2 || '', retirement: a.retirement || '', costBasis: Number(a.costBasis) || 0,
       value: Number(a.value) || 0,               // already $ thousands
       ret,                                       // assumed annual return
       ytd: ret === null ? null : ret * yearFrac, // pro-rated year to date
@@ -1107,6 +1140,7 @@ function renderPortfolio() {
     document.getElementById('pf-table').innerHTML =
       '<tbody><tr><td class="l" style="padding:20px">No holdings yet. Add them on the Setup tab.</td></tr></tbody>';
     renderOwnerSlide(pf);
+    renderTaxLiabilities(pf);
     renderAllocation(pf);
     return;
   }
@@ -1197,6 +1231,7 @@ function renderPortfolio() {
   h += '</tbody>';
   document.getElementById('pf-table').innerHTML = h;
   renderOwnerSlide(pf);
+  renderTaxLiabilities(pf);
   renderAllocation(pf);
 }
 
@@ -2524,6 +2559,107 @@ async function saveTaxRates() {
   } finally {
     btn.disabled = false;
   }
+}
+
+/* ── Tax liability (section 1) and Calculations (section 2) ──
+   Every account except Cash: Gain = current value − cost basis; Tax due = Gain × the rate for its
+   type (Retirement Roth / Traditional, else non-retirement capital gains). A loss gives a negative
+   tax due that offsets the rest. % of total assets is a share of all household assets (Cash included). */
+const TAX_TYPES = [
+  { key: 'traditional', retirement: 'Traditional', label: 'Traditional retirement', short: 'Traditional' },
+  { key: 'roth', retirement: 'Roth', label: 'Roth IRA', short: 'Roth' },
+  { key: 'capGains', retirement: '', label: 'Non-retirement', short: 'Non-retirement' },
+];
+const taxExpanded = new Set();
+const taxSort = { liability: { key: 'tax', dir: 'desc' }, calc: { key: 'tax', dir: 'desc' } };
+
+function computeTaxes(pf) {
+  const allValue = pf.totals.allValue;
+  const rows = pf.liquid.concat(pf.illiquid).filter(r => r.assetClass !== 'Cash').map(r => {
+    const t = TAX_TYPES.find(x => x.retirement === (r.retirement || '')) || TAX_TYPES[2];
+    const rate = typeof taxRates[t.key] === 'number' ? taxRates[t.key] : null;
+    const value = typeof r.value === 'number' ? r.value : null;
+    const gain = value === null ? null : value - (r.costBasis || 0);
+    const tax = gain === null || rate === null ? null : gain * rate;
+    const name = r.ticker && r.name !== r.ticker ? `${r.name} (${r.ticker})` : (r.name || r.ticker);
+    return { type: t.key, typeLabel: t.short, name, value, gain, rate, tax, pct: allValue && tax !== null ? tax / allValue : null };
+  });
+  const sum = list => list.reduce((s, r) => s + (r.tax || 0), 0);
+  const groups = TAX_TYPES.map(t => {
+    const rs = rows.filter(r => r.type === t.key);
+    const tax = sum(rs);
+    return { key: t.key, label: t.label, rows: rs, tax, pct: allValue ? tax / allValue : null, rate: taxRates[t.key] };
+  });
+  const total = sum(rows);
+  return { rows, groups, total, pct: allValue ? total / allValue : null, missingRates: TAX_TYPES.filter(t => typeof taxRates[t.key] !== 'number' && rows.some(r => r.type === t.key)) };
+}
+
+function sortByKey(list, s, textKeys) {
+  return [...list].sort((a, b) => {
+    const av = a[s.key], bv = b[s.key];
+    const an = av === null || av === undefined || av === '', bn = bv === null || bv === undefined || bv === '';
+    if (an || bn) return an && bn ? 0 : an ? 1 : -1;   // blanks last
+    const c = textKeys.includes(s.key) ? String(av).localeCompare(String(bv)) : av - bv;
+    return s.dir === 'asc' ? c : -c;
+  });
+}
+function setTaxSort(table, key) {
+  const s = taxSort[table];
+  if (s.key === key) s.dir = s.dir === 'asc' ? 'desc' : 'asc';
+  else { s.key = key; s.dir = ['label', 'name', 'typeLabel'].includes(key) ? 'asc' : 'desc'; }
+  renderTaxLiabilities();
+}
+function taxTh(table, key, label, cls = '') {
+  const s = taxSort[table], on = s.key === key;
+  return `<th class="sortable ${cls}" onclick="setTaxSort('${table}','${key}')">${label}` +
+    `<span class="sort-arrow" style="opacity:${on ? 1 : .55}">${on ? (s.dir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>`;
+}
+function toggleTaxGroup(key) {
+  if (taxExpanded.has(key)) taxExpanded.delete(key); else taxExpanded.add(key);
+  renderTaxLiabilities();
+}
+const taxCell = v => `<td class="taxdue">${typeof v === 'number' ? fmtNum(v, 0) : ''}</td>`;
+
+function renderTaxLiabilities(pf) {
+  pf = pf || lastPf;
+  const t1 = document.getElementById('tax-liability-table'), t2 = document.getElementById('tax-calc-table');
+  if (!pf || !t1 || !t2) return;
+  const d = computeTaxes(pf);
+  const warn = d.missingRates.length
+    ? `<caption class="tax-warn">No tax rate set yet for ${d.missingRates.map(t => t.label).join(', ')} — enter it under Tax rates.</caption>` : '';
+
+  // Section 1: total at the top, then the three types (expandable), sorted.
+  const maxPct = Math.max(0, ...d.groups.map(g => g.pct || 0));
+  let h = warn + '<thead><tr>' + taxTh('liability', 'label', 'Type', 'l') + taxTh('liability', 'tax', 'Tax due<br>$K') +
+    taxTh('liability', 'pct', '% of total<br>assets') + '</tr></thead><tbody>' +
+    `<tr class="total top"><td class="l">Total future taxes due</td>${taxCell(d.total)}<td>${fmtPct(d.pct, 1)}</td></tr>`;
+  sortByKey(d.groups, taxSort.liability, ['label']).forEach(g => {
+    const open = taxExpanded.has(g.key);
+    h += `<tr class="class-row" onclick="toggleTaxGroup('${g.key}')" title="${open ? 'Collapse' : 'Expand'}">` +
+      `<td class="l"><span class="caret">${open ? '▾' : '▸'}</span>${escapeHtml(g.label)} <span class="cnt">(${g.rows.length})</span></td>` +
+      `${taxCell(g.tax)}<td style="${dataBar(g.pct, maxPct)}">${fmtPct(g.pct, 1)}</td></tr>`;
+    if (!open) return;
+    sortByKey(g.rows, { key: taxSort.liability.key === 'label' ? 'name' : taxSort.liability.key, dir: taxSort.liability.dir }, ['name'])
+      .forEach(r => {
+        h += `<tr class="in-class"><td class="l oname" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</td>` +
+          (r.value === null ? `<td class="nodata">no price</td><td></td>` : `${taxCell(r.tax)}<td style="${dataBar(r.pct, maxPct)}">${fmtPct(r.pct, 1)}</td>`) + `</tr>`;
+      });
+  });
+  t1.innerHTML = h + '</tbody>';
+
+  // Section 2: one row per account, every column sortable, with a total row.
+  const totValue = d.rows.reduce((s, r) => s + (r.value || 0), 0), totGain = d.rows.reduce((s, r) => s + (r.gain || 0), 0);
+  let c = '<thead><tr>' + taxTh('calc', 'typeLabel', 'Fund type', 'l') + taxTh('calc', 'name', 'Fund name', 'l') +
+    taxTh('calc', 'value', 'Current value<br>$K') + taxTh('calc', 'gain', 'Gain<br>$K') + taxTh('calc', 'rate', 'Rate') +
+    taxTh('calc', 'tax', 'Tax due<br>$K') + '</tr></thead><tbody>';
+  if (!d.rows.length) c += '<tr><td class="l muted" colspan="6" style="padding:12px">No accounts other than Cash yet.</td></tr>';
+  sortByKey(d.rows, taxSort.calc, ['typeLabel', 'name']).forEach(r => {
+    c += `<tr><td class="l">${escapeHtml(r.typeLabel)}</td><td class="l oname" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</td>` +
+      (r.value === null ? `<td class="nodata">no price</td><td></td>` : `<td>${fmtNum(r.value, 0)}</td><td>${fmtNum(r.gain, 0)}</td>`) +
+      `<td>${r.rate === null ? '<span class="muted">not set</span>' : fmtPct(r.rate, 1)}</td>${taxCell(r.tax)}</tr>`;
+  });
+  c += `<tr class="total"><td class="l" colspan="2">Total</td><td>${fmtNum(totValue, 0)}</td><td>${fmtNum(totGain, 0)}</td><td></td>${taxCell(d.total)}</tr></tbody>`;
+  t2.innerHTML = c;
 }
 
 /* ══════════════════════════════════════════════════════════════════════
