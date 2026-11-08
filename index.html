@@ -192,7 +192,10 @@
   .ben-btn { background: white; color: var(--ink); border: 1.5px solid #bbb; min-width: 76px; }
   .ben-btn.on { background: var(--yale); color: white; border-color: var(--yale); }
   .reset-btn { border-color: var(--orange); color: var(--orange); }
-  .own-filters { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+  .own-filters { display: flex; gap: 14px; flex-wrap: wrap; }
+  /* Slides 2 and 3: the shortcuts, Reset all and dropdowns sit in one titled box. */
+  .filter-controls { border: 1.5px solid #c9c9c9; border-radius: 10px; padding: 10px 14px 12px; margin-bottom: 14px; background: #fcfcfc; }
+  .filter-box-title { font-size: 13px; font-weight: 700; color: var(--yale); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
   .msel { position: relative; display: flex; flex-direction: column; gap: 3px; }
   .acct-tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 10px; }
   #acct-col-picker .msel-btn { min-width: 210px; }
@@ -397,7 +400,8 @@
               $ values in thousands. Returns are total returns (dividends reinvested). 5-year total return is annualized;
               its liquid total is value-weighted over funds with 5 years of history. Illiquid returns (in italics) are your
               assumed annual returns, pro-rated for the part of the year gone by (hover to see the annual figure); the
-              All-assets YTD colors compare every account, liquid and illiquid. Prices are end-of-day closes from Tiingo; an "As of" time (ET) means the price is a newer
+              All-assets YTD colors compare every account, liquid and illiquid. The All-assets 5-year column uses illiquid
+              assets' assumed annual returns in full. Prices are end-of-day closes from Tiingo; an "As of" time (ET) means the price is a newer
               quote from Yahoo Finance, used until Tiingo catches up.
             </p>
           </div>
@@ -409,10 +413,10 @@
             </div>
             <div class="tbl-wrap"><table class="alloc owners" id="owner-table"></table></div>
             <p class="desc" style="margin-top:14px">
-              $ values in thousands, at current prices; liquid and illiquid accounts together. An account with two
-              beneficiaries, or a joint one ("Dan &amp; Alison"), is split equally between them, so a filtered value marked
-              <strong>*</strong> is a share of the account (hover to see it). "% of total assets" is a share of everything the
-              selected account owners hold. The columns on the right split the value by account owner (WROS = Dan &amp; Alison
+              $ values in thousands, at current prices; liquid and illiquid accounts together. Filtering by beneficiary
+              shows the full value of every account that names a selected beneficiary (an account with two beneficiaries
+              isn't divided between them). "% of total assets" is a share of everything the
+              selected account owners hold. The columns on the right split the value by account owner (Joint = Dan &amp; Alison
               jointly), one column per selected owner. Your filter choices are remembered on this device; <strong>Reset all</strong> selects everything.
             </p>
           </div>
@@ -425,7 +429,7 @@
               illiquid assets' assumed annual returns: pro-rated for the part of the year gone by in the YTD column, in full in
               the 5-year column. Funds without 5 years of history are left out of the 5-year average. Holdings with no asset
               class set are grouped under "Unclassified" — set the class on the Setup tab. The filters are shared with slide 2:
-              values are the selected beneficiaries' shares, and "% of total assets" is a share of everything the selected account
+              accounts naming a selected beneficiary count in full, and "% of total assets" is a share of everything the selected account
               owners hold, so the Total can be under 100%.
             </p>
           </div>
@@ -898,6 +902,7 @@ function computePortfolio(assetMap, priceMap) {
       dayChg: p ? p.dayChg ?? null : null,
       ytd: p ? p.ytd ?? null : null,
       tr5y: p ? p.tr5y ?? null : null,
+      all5y: p ? p.tr5y ?? null : null,           // All-assets 5-year column
       value: price === null ? null : units * price / 1000,   // $ thousands
       priceError: p ? null : 'No price yet',
     };
@@ -915,6 +920,7 @@ function computePortfolio(assetMap, priceMap) {
       value: Number(a.value) || 0,               // already $ thousands
       ret,                                       // assumed annual return
       ytd: ret === null ? null : ret * yearFrac, // pro-rated year to date
+      all5y: ret,                                // 5-year: the assumed annual return in full
     };
   });
 
@@ -936,6 +942,7 @@ function computePortfolio(assetMap, priceMap) {
       liqValue, illValue, allValue,
       liqYtd: weightedAvg(liquid, 'ytd'),
       liq5y: weightedAvg(liquid, 'tr5y'),
+      all5y: weightedAvg(liquid.concat(illiquid), 'all5y'),
       liqDay: weightedAvg(liquid, 'dayChg'),
       liqPct: liqValue && allValue ? liqValue / allValue : null,
       allRet: weightedAvg(allRows, 'ret'),
@@ -1071,7 +1078,7 @@ function classGroups(rows, side, liqValue, allValue) {
       key, cls, label: cls || 'Unclassified', rows: rs, value, open: pfExpanded.has(key),
       pctLiq: side === 'L' && liqValue ? value / liqValue : null,
       pctAll: allValue ? value / allValue : null,
-      ytd: weightedAvg(rs, 'ytd'), tr5y: weightedAvg(rs, 'tr5y'), ret: weightedAvg(rs, 'ret'),
+      ytd: weightedAvg(rs, 'ytd'), tr5y: weightedAvg(rs, 'tr5y'), ret: weightedAvg(rs, 'ret'), all5y: weightedAvg(rs, 'all5y'),
     };
   });
   const pos = g => classPos(g.cls);
@@ -1157,6 +1164,9 @@ function renderPortfolio() {
   // return) together; likewise one scale across all class subtotals.
   const cTot = colorScale(liquid.filter(r => r.active).map(r => r.ytd).concat(illiquid.map(r => r.ytd)));
   const gTot = colorScale(lGroups.map(g => g.ytd).concat(iGroups.map(g => g.ytd)));
+  // All-assets 5-year: the same idea, with illiquid assets' assumed annual returns in full.
+  const cAll5 = colorScale(liquid.filter(r => r.active).map(r => r.all5y).concat(illiquid.map(r => r.all5y)));
+  const gAll5 = colorScale(lGroups.map(g => g.all5y).concat(iGroups.map(g => g.all5y)));
   const proRated = r => ` title="Assumed ${fmtPct(r.ret)} a year × ${Math.round(pf.yearFrac * 100)}% of the year gone by"`;
   // Data bars: one scale per column, set by its largest row (a class subtotal is never smaller than its funds).
   const maxLiq = Math.max(0, ...lGroups.map(g => g.pctLiq || 0));
@@ -1166,20 +1176,19 @@ function renderPortfolio() {
     ` <span class="cnt">(${g.rows.length})</span></td>`;
 
   let h = '<thead>';
-  h += '<tr class="grp"><th class="blank" colspan="8"></th><th class="blank gap"></th>' +
-       '<th colspan="3">Liquid assets</th><th colspan="3">All assets</th></tr>';
+  h += '<tr class="grp"><th class="blank" colspan="6"></th><th class="blank gap"></th>' +
+       '<th colspan="4">Liquid assets</th><th colspan="4">All assets</th></tr>';
   h += '<tr>' + sortTh('assetClass', 'Asset class', 'l') + sortTh('name', 'Fund name', 'l fname') + sortTh('ticker', '', 'l') + sortTh('price', 'Price') + sortTh('asOf', 'As of date') +
-       sortTh('dayChg', 'Day chg') + `<th class="sep sortable" onclick="setSort('tr5y')">5-year<br>total<br>return<span class="sort-arrow">${sortKey === 'tr5y' ? (sortDir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>` +
-       '<th></th><th class="gap"></th>' +
-       sortTh('ytd', 'YTD Tot ret') + sortTh('value', 'Current $K<br>value') + sortTh('pctLiq', '% of<br>liquid<br>assets') +
-       '<th>YTD tot ret</th><th>Current $K<br>value</th><th>% of all<br>assets</th></tr></thead><tbody>';
+       sortTh('dayChg', 'Day chg') + '<th class="gap"></th>' +
+       sortTh('tr5y', '5-year<br>total<br>return') + sortTh('ytd', 'YTD Tot ret') + sortTh('value', 'Current $K<br>value') + sortTh('pctLiq', '% of<br>liquid<br>assets') +
+       '<th>5-year<br>total<br>return</th><th>YTD tot ret</th><th>Current $K<br>value</th><th>% of all<br>assets</th></tr></thead><tbody>';
 
   lGroups.forEach(g => {
     h += `<tr class="class-row" onclick="toggleClassGroup('${g.key}')" title="${g.open ? 'Collapse' : 'Expand'}">${groupCell(g)}` +
-      `<td class="sep"${bg(g5(g.tr5y))}>${fmtPct(g.tr5y)}</td><td></td><td class="gap"></td>` +
+      `<td class="gap"></td><td${bg(g5(g.tr5y))}>${fmtPct(g.tr5y)}</td>` +
       `<td${bg(gYtd(g.ytd))}>${fmtPct(g.ytd)}</td><td>${fmtNum(g.value, 0)}</td>` +
       `<td style="${dataBar(g.pctLiq, maxLiq)}">${fmtPct(g.pctLiq)}</td>` +
-      `<td${bg(gTot(g.ytd))}>${fmtPct(g.ytd)}</td><td>${fmtNum(g.value, 0)}</td>` +
+      `<td${bg(gAll5(g.all5y))}>${fmtPct(g.all5y)}</td><td${bg(gTot(g.ytd))}>${fmtPct(g.ytd)}</td><td>${fmtNum(g.value, 0)}</td>` +
       `<td style="${dataBar(g.pctAll, maxAll)}">${fmtPct(g.pctAll)}</td></tr>`;
     if (!g.open) return;
     g.rows.forEach(r => {
@@ -1191,10 +1200,11 @@ function renderPortfolio() {
         (noPrice ? `<td class="nodata" colspan="3">no price</td>` :
           `<td>${fmtNum(r.price, 2)}</td><td title="${r.source === 'yahoo' ? 'Latest quote from Yahoo Finance' : 'End-of-day close from Tiingo'}">${escapeHtml(fmtAsOf(r))}</td>` +
           `<td class="${r.dayChg < 0 && r.active ? 'neg' : ''}">${fmtParenPct(r.dayChg)}</td>`) +
-        `<td class="sep"${r.active ? bg(c5(r.tr5y)) : ''}>${fmtPct(r.tr5y)}</td><td></td><td class="gap"></td>` +
+        `<td class="gap"></td><td${r.active ? bg(c5(r.tr5y)) : ''}>${fmtPct(r.tr5y)}</td>` +
         `<td${r.active ? bg(cYtd(r.ytd)) : ''}>${fmtPct(r.ytd)}</td>` +
         `<td>${fmtNum(r.value, 0)}</td>` +
         `<td style="${r.active ? dataBar(r.pctLiq, maxLiq) : ''}">${fmtPct(r.pctLiq)}</td>` +
+        `<td${r.active ? bg(cAll5(r.all5y)) : ''}>${fmtPct(r.all5y)}</td>` +
         `<td${r.active ? bg(cTot(r.ytd)) : ''}>${fmtPct(r.ytd)}</td>` +
         `<td>${fmtNum(r.value, 0)}</td>` +
         `<td style="${r.active ? dataBar(r.pctAll, maxAll) : ''}">${fmtPct(r.pctAll)}</td></tr>`;
@@ -1206,28 +1216,30 @@ function renderPortfolio() {
   // bold All assets total at the bottom (as in the household spreadsheet).
   h += '<tr class="total"><td class="l row-title" colspan="5">Average returns, liquid assets</td>' +
        `<td class="${t.liqDay < 0 ? 'neg' : ''}">${fmtParenPct(t.liqDay)}</td>` +
-       `<td class="sep">${fmtPct(t.liq5y)}</td><td></td><td class="gap"></td>` +
+       `<td class="gap"></td><td>${fmtPct(t.liq5y)}</td>` +
        `<td>${fmtPct(t.liqYtd)}</td><td class="nb">${fmtNum(t.liqValue, 0)}</td><td class="nb">${t.liqValue ? '100%' : ''}</td>` +
-       '<td class="part" colspan="3"></td></tr>';
+       '<td class="part" colspan="4"></td></tr>';
 
   // Illiquid rows, by asset class
   iGroups.forEach(g => {
     h += `<tr class="class-row illiquid" onclick="toggleClassGroup('${g.key}')" title="${g.open ? 'Collapse' : 'Expand'}">${groupCell(g)}` +
-      `<td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>` +
+      `<td class="gap"></td><td colspan="4"></td>` +
+      `<td class="assumed"${bg(gAll5(g.all5y))} title="Assumed annual return">${fmtPct(g.all5y)}</td>` +
       `<td class="assumed"${bg(gTot(g.ytd))}${proRated(g)}>${fmtPct(g.ytd)}</td><td>${fmtNum(g.value, 0)}</td>` +
       `<td style="${dataBar(g.pctAll, maxAll)}">${fmtPct(g.pctAll)}</td></tr>`;
     if (!g.open) return;
     g.rows.forEach(r => {
       h += `<tr class="illiquid in-class"><td class="tagcell">${equityTagHtml(r.assetClass)}</td><td class="l fname" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</td>` +
-        `<td colspan="4"></td><td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>` +
+        `<td colspan="4"></td><td class="gap"></td><td colspan="4"></td>` +
+        `<td class="assumed"${bg(cAll5(r.all5y))} title="Assumed annual return">${fmtPct(r.all5y)}</td>` +
         `<td class="assumed"${bg(cTot(r.ytd))}${proRated(r)}>${fmtPct(r.ytd)}</td><td>${fmtNum(r.value, 0)}</td>` +
         `<td style="${dataBar(r.pctAll, maxAll)}">${fmtPct(r.pctAll)}</td></tr>`;
     });
   });
 
   // Grand total (liquid + illiquid)
-  h += '<tr class="total"><td class="l row-title" colspan="6" style="border-top:none">All assets</td><td class="sep" style="border-top:none"></td><td style="border-top:none"></td><td class="gap" style="border-top:none"></td><td colspan="3" style="border-top:none"></td>' +
-       `<td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 0)}</td><td>${t.allValue ? '100%' : ''}</td></tr>`;
+  h += '<tr class="total"><td class="l row-title" colspan="6" style="border-top:none">All assets</td><td class="gap" style="border-top:none"></td><td colspan="4" style="border-top:none"></td>' +
+       `<td>${fmtPct(t.all5y)}</td><td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 0)}</td><td>${t.allValue ? '100%' : ''}</td></tr>`;
   h += '</tbody>';
   document.getElementById('pf-table').innerHTML = h;
   renderOwnerSlide(pf);
@@ -1244,18 +1256,18 @@ const EQUITY_CLASSES = ASSET_CLASSES.filter(c => c.startsWith('Equity'));
 // whether each return comes only from illiquid assumed returns. Liquid funds contribute their
 // YTD / 5-year returns; illiquid assets contribute their assumed annual return, pro-rated to date
 // for YTD (as on slide 1) and in full for 5-year.
-// The slide 2 filters (shared) apply: only selected owners and asset classes, each account's value
-// scaled to the selected beneficiaries' share, and % of total assets is a share of everything the
+// The slide 2 filters (shared) apply: only selected owners and asset classes, accounts naming a
+// selected beneficiary (in full), and % of total assets is a share of everything the
 // selected owners hold (as on slide 2).
 function allocationRows(pf, keyOf, order) {
   const ownerOk = r => isSelected('owner', r.owner || NO_VALUE);
   const allValue = pf.liquid.concat(pf.illiquid).filter(ownerOk).reduce((s, r) => s + (r.value || 0), 0);
-  const frac = r => Object.entries(beneficiaryShares(r)).reduce((s, [p, w]) => s + (isSelected('ben', p) ? w : 0), 0);
   const items = pf.liquid.filter(r => typeof r.value === 'number')
     .map(r => ({ r, key: keyOf(r.assetClass), ytd: r.ytd, tr5y: r.tr5y, assumed: false }))
     .concat(pf.illiquid.map(r => ({ r, key: keyOf(r.assetClass), ytd: r.ytd, tr5y: r.ret, assumed: true })))
     .filter(i => i.key !== null && ownerOk(i.r) && isSelected('cls', i.r.assetClass || UNCLASSIFIED))
-    .map(i => ({ ...i, value: i.r.value * frac(i.r) }))
+    .filter(i => benMatch(beneficiaryShares(i.r)))
+    .map(i => ({ ...i, value: i.r.value }))
     .filter(i => Math.abs(i.value) > 1e-9);
   const summarize = (label, list) => {
     const value = list.reduce((s, i) => s + i.value, 0);
@@ -1411,8 +1423,11 @@ function filterOptions(accts) {
   };
 }
 function isSelected(dim, v) { const s = holdFilters[dim]; return s === null || s.includes(v); }
+// An account passes the Beneficiary filter when any of its beneficiaries is selected, and then
+// counts in full (its value isn't divided between beneficiaries).
+function benMatch(shares) { return Object.keys(shares).some(p => isSelected('ben', p)); }
 
-// Rows for the table: each account's value scaled to the selected beneficiaries' share.
+// Rows for the table: accounts that name a selected beneficiary, at their full value.
 // The % column is a share of everything the selected account owners hold (beneficiary and
 // asset-class filters don't change that base).
 function computeOwnerSlide(pf) {
@@ -1421,9 +1436,8 @@ function computeOwnerSlide(pf) {
   const shown = [];
   accts.forEach(a => {
     if (!isSelected('owner', a.owner) || !isSelected('cls', a.cls)) return;
-    const frac = Object.entries(a.shares).reduce((s, [p, w]) => s + (isSelected('ben', p) ? w : 0), 0);
-    if (frac <= 1e-9) return;
-    shown.push({ ...a, frac, shownValue: a.value === null ? null : a.value * frac });
+    if (!benMatch(a.shares)) return;
+    shown.push({ ...a, shownValue: a.value });
   });
   const opts = filterOptions(accts);
   // Display groups: the equity classes together as "Equities" (rows in equity-class order), then the rest.
@@ -1456,7 +1470,7 @@ function computeOwnerSlide(pf) {
 }
 // Short column headers for the owner columns, in the order they're listed.
 const OWNER_COLUMN_LABELS = {
-  'Dan & Alison': 'WROS', 'Dan': 'Dan', 'Alison': 'Alison', 'DS Family Trust': 'DS Fam<br>Trust',
+  'Dan & Alison': 'Joint', 'Dan': 'Dan', 'Alison': 'Alison', 'DS Family Trust': 'DS Fam<br>Trust',
   'AS Family Trust': 'AS Fam<br>Trust', 'Lauren': 'Lauren', 'Trust for Lauren': 'Trust<br>Lauren', 'Trust for Jodie': 'Trust<br>Jodie',
 };
 // Row-2 titles over the owner columns (Trust for Jodie has none).
@@ -1559,7 +1573,7 @@ function renderFilterControls(opts) {
     `<div class="own-top"><div class="sc-rows">${shortcutRow('ben', 'Beneficiary shortcuts')}${shortcutRow('owner', 'Account owner shortcuts')}</div>` +
       `<button type="button" class="btn btn-secondary btn-sm reset-btn" onclick="resetHoldFilters()" title="Select everything and collapse all classes">↺ Reset all</button></div>` +
     `<div class="own-filters">` + FILTER_DIMS.map(([dim, label]) => filterMenuHtml(dim, label, opts[dim])).join('') + `</div>`;
-  document.querySelectorAll('.filter-controls').forEach(box => { box.innerHTML = html; });
+  document.querySelectorAll('.filter-controls').forEach(box => { box.innerHTML = '<div class="filter-box-title">Filtering tools</div>' + html; });
   // "Select / deselect all" shows a dash when only some options are selected.
   FILTER_DIMS.forEach(([dim]) => {
     const s = holdFilters[dim];
@@ -1609,12 +1623,11 @@ function renderOwnerSlide(pf) {
       `<td>${fmtNum(g.value, 0)}</td><td style="${dataBar(g.pct, maxPct)}">${fmtPct(g.pct, 1)}</td>${ownerCells(g.byOwner)}</tr>`;
     if (!g.open) return;
     g.rows.forEach(a => {
-      const part = a.frac < 0.999 && a.value !== null ? ` title="${Math.round(a.frac * 100)}% share of ${fmtNum(a.value, 0)}"` : '';
       const nm = a.ticker && a.name !== a.ticker ? `${a.name} (${a.ticker})` : a.name || a.ticker;
       h += `<tr class="in-class"><td class="tagcell">${equityTagHtml(a.cls)}</td>` +
         `<td class="l oname" title="${escapeHtml(nm)} — ${escapeHtml(a.owner)}">${escapeHtml(nm)}</td>` +
         (a.shownValue === null ? `<td class="nodata">no price</td><td></td>`
-          : `<td${part}>${fmtNum(a.shownValue, 0)}${part ? '<span class="share-mark">*</span>' : ''}</td>` +
+          : `<td>${fmtNum(a.shownValue, 0)}</td>` +
             `<td style="${dataBar(d.base ? a.shownValue / d.base : null, maxPct)}">${fmtPct(d.base ? a.shownValue / d.base : null, 1)}</td>`) +
         ownerCells(a.shownValue === null ? {} : { [a.owner]: a.shownValue }) + `</tr>`;
     });
