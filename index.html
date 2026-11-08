@@ -698,7 +698,7 @@ const ASSET_CLASSES = [
   'Real estate', 'Absolute return', 'Crypto', 'Private equity', 'Early-stage', 'Bonds', 'Cash',
 ];
 // Account owners, in display order. Stored on each holding as owner (the label itself).
-const ACCOUNT_OWNERS = ['WROS', 'Dan', 'Alison', 'AS Family Trust', 'DS Family Trust', 'Lauren', 'Trust for Lauren', 'Trust for Jodie'];
+const ACCOUNT_OWNERS = ['Dan & Alison', 'Dan', 'Alison', 'AS Family Trust', 'DS Family Trust', 'Lauren', 'Trust for Lauren', 'Trust for Jodie'];
 
 // Matches a typed/uploaded value to one of a list's labels, ignoring case, spaces and hyphens.
 // Returns the label, '' for a blank value, or null if nothing matches.
@@ -1145,10 +1145,13 @@ const CUSTODIANS = ['Fidelity', 'Vanguard', 'McKinsey', 'MIO', 'Maverick', 'Equi
 const LIQUIDITY = ['Liquid', 'Illiquid'];
 // Default [Beneficiary, Beneficiary 2] for each Account owner.
 const BENEFICIARY_DEFAULTS = {
-  'WROS': ['Dan & Alison', ''], 'Dan': ['Dan', ''], 'Alison': ['Alison', ''],
+  'Dan & Alison': ['Dan & Alison', ''], 'Dan': ['Dan', ''], 'Alison': ['Alison', ''],
   'DS Family Trust': ['Alison', 'Lauren'], 'AS Family Trust': ['Dan', 'Lauren'],
   'Lauren': ['Lauren', ''], 'Trust for Lauren': ['Lauren', ''], 'Trust for Jodie': ['Jodie', ''],
 };
+// Owner labels that were renamed: old stored or uploaded value → current label.
+const OWNER_RENAMES = { 'wros': 'Dan & Alison' };
+function renameOwner(v) { return OWNER_RENAMES[String(v || '').trim().toLowerCase()] || v; }
 const PICK_FIELDS = ['assetClass', 'owner', 'beneficiary', 'beneficiary2', 'custodian'];
 
 function defaultLiquidity(ticker, assetClass) { return ticker || assetClass === 'Cash' ? 'Liquid' : 'Illiquid'; }
@@ -1187,6 +1190,7 @@ function normalizeAccount(a) {
   if (ticker) out.units = Number(a.units) || 0; else out.value = Number(a.value) || 0;
   if (typeof a.assumedReturn === 'number') out.assumedReturn = a.assumedReturn;
   PICK_FIELDS.forEach(f => { if (a[f]) out[f] = a[f]; });
+  if (out.owner) out.owner = renameOwner(out.owner);
   return out;
 }
 
@@ -1206,7 +1210,7 @@ function accountValueK(a) {
 let converting = false, conversionWarned = false;
 async function convertAccountsIfNeeded() {
   if (!currentUser || !currentUser.isAdmin || converting) return;
-  const old = Object.values(assets).filter(a => a && a.kind);
+  const old = Object.values(assets).filter(a => a && (a.kind || renameOwner(a.owner) !== a.owner));
   if (!old.length) return;
   converting = true;
   try {
@@ -1453,7 +1457,7 @@ async function writeWorkbook(filename, sheetName, header, rows, widths) {
 async function downloadTemplate() {
   const header = FILE_COLUMNS.map(c => c.col);
   const examples = [
-    { assetClass: 'Equity US Broad', owner: 'WROS', beneficiary: 'Dan & Alison', custodian: 'Vanguard', liquidity: 'Liquid',
+    { assetClass: 'Equity US Broad', owner: 'Dan & Alison', beneficiary: 'Dan & Alison', custodian: 'Vanguard', liquidity: 'Liquid',
       ticker: 'VTSAX', name: 'Vanguard Total Stock Market Index Fund Admiral', units: 100, costBasis: 12.5 },
     { assetClass: 'Private equity', owner: 'DS Family Trust', beneficiary: 'Alison', beneficiary2: 'Lauren', liquidity: 'Illiquid',
       name: 'Example private equity fund', value: 250, costBasis: 200, assumedReturn: 0.11 },
@@ -1587,7 +1591,7 @@ function buildUploadPlan(rawRows, current) {
     // Pick lists: blank keeps the current value; anything else must be on the list.
     for (const [f, list] of Object.entries(lists)) {
       const raw = str(C[f]);
-      const m = matchOption(list, raw);
+      const m = matchOption(list, f === 'owner' ? renameOwner(raw) : raw);
       if (m === null) return err(label0, `Unknown ${FIELD_LABELS[f]} "${raw}". Use one of: ${list.join(', ')}.`);
       if (m) next[f] = m;
     }
