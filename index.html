@@ -154,6 +154,14 @@
   table.pf tr.total td.part { font-weight: 400; border-top: none; border-bottom: 1px solid #f0f0f0; }
   table.pf tr.total td.nb { font-weight: 400; }
   table.pf tr.total td.row-title { text-align: right; padding-right: 14px; }
+  /* Asset-class subtotal rows: click to show / hide the class's rows. */
+  table.pf tr.class-row { cursor: pointer; }
+  table.pf tr.class-row td { font-weight: 600; border-bottom: 1px solid #e2e2e2; }
+  table.pf tr.class-row:hover td:first-child { color: var(--orange); }
+  table.pf tr.class-row .caret { display: inline-block; width: 16px; color: #888; }
+  table.pf tr.class-row .cnt { font-weight: 400; color: #999; }
+  table.pf tr.in-class td.fname { padding-left: 25px; }
+  .pf-group-btns { display: flex; gap: 8px; margin: 0 0 8px; }
 
   /* ── Portfolio slide deck + Present (full-screen) mode (GTIA style guide §20, §20a).
      The slides are tables, so presenting scales the whole slide (fitPresentZoom) rather than
@@ -318,6 +326,10 @@
 
         <div id="slide-content">
           <div class="slide" id="slide-returns">
+            <div class="pf-group-btns">
+              <button class="btn btn-secondary btn-sm" onclick="setAllClassGroups(true)">Expand all</button>
+              <button class="btn btn-secondary btn-sm" onclick="setAllClassGroups(false)">Collapse all</button>
+            </div>
             <div class="tbl-wrap"><table class="pf" id="pf-table"></table></div>
             <p class="desc" style="margin-top:14px">
               $ values in thousands. Returns are total returns (dividends reinvested). 5-year total return is annualized;
@@ -868,6 +880,55 @@ function sortTh(key, label, cls = '') {
   return `<th class="sortable ${cls}" onclick="setSort('${key}')">${label}<span class="sort-arrow" style="opacity:${op}">${arrow}</span></th>`;
 }
 
+/* ── Slide 1: rows grouped by asset class, each group collapsible (all start collapsed) ── */
+const pfExpanded = new Set();   // keys 'L:<class>' (funds) / 'I:<class>' (illiquid) the viewer has opened
+
+// Groups rows by asset class, with subtotals: value, % of liquid / all assets, and value-weighted
+// YTD, 5-year and assumed returns (same rules as the totals). Order follows the column sort.
+function classGroups(rows, side, liqValue, allValue) {
+  const map = new Map();
+  rows.forEach(r => { const k = r.assetClass || ''; if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
+  const groups = [...map].map(([cls, rs]) => {
+    const value = rs.reduce((s, r) => s + (r.value || 0), 0);
+    const key = side + ':' + cls;
+    return {
+      key, cls, label: cls || 'Unclassified', rows: rs, value, open: pfExpanded.has(key),
+      pctLiq: side === 'L' && liqValue ? value / liqValue : null,
+      pctAll: allValue ? value / allValue : null,
+      ytd: weightedAvg(rs, 'ytd'), tr5y: weightedAvg(rs, 'tr5y'), ret: weightedAvg(rs, 'ret'),
+    };
+  });
+  const pos = g => { const i = ASSET_CLASSES.indexOf(g.cls); return i < 0 ? ASSET_CLASSES.length : i; };
+  const numericKeys = side === 'L' ? ['tr5y', 'ytd', 'value', 'pctLiq'] : ['value'];
+  groups.sort((a, b) => {
+    if (!a.cls || !b.cls) return !a.cls && !b.cls ? 0 : !a.cls ? 1 : -1;   // Unclassified last
+    if (numericKeys.includes(sortKey)) {
+      const av = a[sortKey], bv = b[sortKey];
+      const an = typeof av !== 'number', bn = typeof bv !== 'number';
+      if (an || bn) return an && bn ? pos(a) - pos(b) : an ? 1 : -1;
+      return (sortDir === 'asc' ? av - bv : bv - av) || pos(a) - pos(b);
+    }
+    const c = pos(a) - pos(b);
+    return sortKey === 'assetClass' && sortDir === 'desc' ? -c : c;
+  });
+  return groups;
+}
+function toggleClassGroup(key) {
+  if (pfExpanded.has(key)) pfExpanded.delete(key); else pfExpanded.add(key);
+  renderPortfolio();
+  fitPresentZoom();
+}
+function setAllClassGroups(open) {
+  pfExpanded.clear();
+  if (open) {
+    const pf = computePortfolio(assets, prices);
+    pf.liquid.forEach(r => pfExpanded.add('L:' + (r.assetClass || '')));
+    pf.illiquid.forEach(r => pfExpanded.add('I:' + (r.assetClass || '')));
+  }
+  renderPortfolio();
+  fitPresentZoom();
+}
+
 function renderPortfolio() {
   if (!currentUser) return;
   const pf = computePortfolio(assets, prices);
@@ -901,38 +962,55 @@ function renderPortfolio() {
     return;
   }
 
+  // Rows are grouped by asset class, liquid and illiquid separately; each group has a subtotal row.
+  const lGroups = classGroups(rows, 'L', t.liqValue, t.allValue);
+  const iGroups = classGroups(illiquid, 'I', t.liqValue, t.allValue);
+  // Return colors: funds are scaled against funds, class subtotals against class subtotals.
   const c5 = colorScale(liquid.map(r => r.tr5y));
   const cYtd = colorScale(liquid.map(r => r.ytd));
-  const cAll = colorScale(liquid.map(r => r.pctAll).concat(illiquid.map(r => r.pctAll)));
-  const maxLiq = Math.max(0, ...liquid.map(r => r.pctLiq || 0));
+  const g5 = colorScale(lGroups.map(g => g.tr5y));
+  const gYtd = colorScale(lGroups.map(g => g.ytd));
+  // Data bars: one scale per column, set by its largest row (a class subtotal is never smaller than its funds).
+  const maxLiq = Math.max(0, ...lGroups.map(g => g.pctLiq || 0));
+  const maxAll = Math.max(0, ...lGroups.map(g => g.pctAll || 0), ...iGroups.map(g => g.pctAll || 0));
   const bg = c => c ? ` style="background:${c}"` : '';
+  const groupCell = g => `<td class="l" colspan="6"><span class="caret">${g.open ? '▾' : '▸'}</span>${escapeHtml(g.label)}` +
+    ` <span class="cnt">(${g.rows.length})</span></td>`;
 
   let h = '<thead>';
   h += '<tr class="grp"><th class="blank" colspan="8"></th><th class="blank gap"></th>' +
-       '<th colspan="3">Liquid assets</th><th colspan="3">All assets</th><th class="blank"></th></tr>';
+       '<th colspan="3">Liquid assets</th><th colspan="3">All assets</th></tr>';
   h += '<tr>' + sortTh('assetClass', 'Asset class', 'l') + sortTh('name', 'Fund name', 'l fname') + sortTh('ticker', '', 'l') + sortTh('price', 'Price') + sortTh('asOf', 'As of date') +
        sortTh('dayChg', 'Day chg') + `<th class="sep sortable" onclick="setSort('tr5y')">5-year<br>total<br>return<span class="sort-arrow">${sortKey === 'tr5y' ? (sortDir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>` +
        '<th></th><th class="gap"></th>' +
        sortTh('ytd', 'YTD Tot ret') + sortTh('value', 'Current $K<br>value') + sortTh('pctLiq', '% of<br>liquid<br>assets') +
-       '<th>Tot ret</th><th>Current $K<br>value</th><th>% of all<br>assets</th><th></th></tr></thead><tbody>';
+       '<th>Tot ret</th><th>Current $K<br>value</th><th>% of all<br>assets</th></tr></thead><tbody>';
 
-  rows.forEach(r => {
-    const noPrice = r.value === null;
-    h += `<tr class="${r.active ? '' : 'inactive'}">` +
-      `<td class="l">${escapeHtml(r.assetClass)}</td>` +
-      `<td class="l fname" title="${escapeHtml(r.name)}"><span class="bank">🏛</span>${escapeHtml(r.name)}</td>` +
-      `<td class="l">${escapeHtml(r.ticker)}</td>` +
-      (noPrice ? `<td class="nodata" colspan="3">no price</td>` :
-        `<td>${fmtNum(r.price, 2)}</td><td title="${r.source === 'yahoo' ? 'Latest quote from Yahoo Finance' : 'End-of-day close from Tiingo'}">${escapeHtml(fmtAsOf(r))}</td>` +
-        `<td class="${r.dayChg < 0 && r.active ? 'neg' : ''}">${fmtParenPct(r.dayChg)}</td>`) +
-      `<td class="sep"${r.active ? bg(c5(r.tr5y)) : ''}>${fmtPct(r.tr5y)}</td><td></td><td class="gap"></td>` +
-      `<td${r.active ? bg(cYtd(r.ytd)) : ''}>${fmtPct(r.ytd)}</td>` +
-      `<td>${fmtNum(r.value, 0)}</td>` +
-      `<td style="${r.active ? dataBar(r.pctLiq, maxLiq) : ''}">${fmtPct(r.pctLiq)}</td>` +
-      `<td${r.active ? bg(cYtd(r.ytd)) : ''}>${fmtPct(r.ytd)}</td>` +
-      `<td>${fmtNum(r.value, 0)}</td>` +
-      `<td${r.active ? bg(cAll(r.pctAll)) : ''}>${fmtPct(r.pctAll)}</td>` +
-      `<td class="l">${escapeHtml(r.ticker)}</td></tr>`;
+  lGroups.forEach(g => {
+    h += `<tr class="class-row" onclick="toggleClassGroup('${g.key}')" title="${g.open ? 'Collapse' : 'Expand'}">${groupCell(g)}` +
+      `<td class="sep"${bg(g5(g.tr5y))}>${fmtPct(g.tr5y)}</td><td></td><td class="gap"></td>` +
+      `<td${bg(gYtd(g.ytd))}>${fmtPct(g.ytd)}</td><td>${fmtNum(g.value, 0)}</td>` +
+      `<td style="${dataBar(g.pctLiq, maxLiq)}">${fmtPct(g.pctLiq)}</td>` +
+      `<td${bg(gYtd(g.ytd))}>${fmtPct(g.ytd)}</td><td>${fmtNum(g.value, 0)}</td>` +
+      `<td style="${dataBar(g.pctAll, maxAll)}">${fmtPct(g.pctAll)}</td></tr>`;
+    if (!g.open) return;
+    g.rows.forEach(r => {
+      const noPrice = r.value === null;
+      h += `<tr class="in-class${r.active ? '' : ' inactive'}">` +
+        `<td class="l"></td>` +
+        `<td class="l fname" title="${escapeHtml(r.name)}"><span class="bank">🏛</span>${escapeHtml(r.name)}</td>` +
+        `<td class="l">${escapeHtml(r.ticker)}</td>` +
+        (noPrice ? `<td class="nodata" colspan="3">no price</td>` :
+          `<td>${fmtNum(r.price, 2)}</td><td title="${r.source === 'yahoo' ? 'Latest quote from Yahoo Finance' : 'End-of-day close from Tiingo'}">${escapeHtml(fmtAsOf(r))}</td>` +
+          `<td class="${r.dayChg < 0 && r.active ? 'neg' : ''}">${fmtParenPct(r.dayChg)}</td>`) +
+        `<td class="sep"${r.active ? bg(c5(r.tr5y)) : ''}>${fmtPct(r.tr5y)}</td><td></td><td class="gap"></td>` +
+        `<td${r.active ? bg(cYtd(r.ytd)) : ''}>${fmtPct(r.ytd)}</td>` +
+        `<td>${fmtNum(r.value, 0)}</td>` +
+        `<td style="${r.active ? dataBar(r.pctLiq, maxLiq) : ''}">${fmtPct(r.pctLiq)}</td>` +
+        `<td${r.active ? bg(cYtd(r.ytd)) : ''}>${fmtPct(r.ytd)}</td>` +
+        `<td>${fmtNum(r.value, 0)}</td>` +
+        `<td style="${r.active ? dataBar(r.pctAll, maxAll) : ''}">${fmtPct(r.pctAll)}</td></tr>`;
+    });
   });
 
   // Liquid totals — Liquid-assets columns only. The All-assets columns are left blank here:
@@ -941,18 +1019,26 @@ function renderPortfolio() {
   h += '<tr class="total"><td class="l row-title" colspan="6">Average returns, liquid assets</td>' +
        `<td class="sep">${fmtPct(t.liq5y)}</td><td></td><td class="gap"></td>` +
        `<td>${fmtPct(t.liqYtd)}</td><td class="nb">${fmtNum(t.liqValue, 0)}</td><td class="nb">${t.liqValue ? '100%' : ''}</td>` +
-       '<td class="part" colspan="3"></td><td class="l part"></td></tr>';
+       '<td class="part" colspan="3"></td></tr>';
 
-  // Illiquid rows
-  illiquid.forEach(r => {
-    h += `<tr class="illiquid"><td class="l">${escapeHtml(r.assetClass)}</td><td class="l" colspan="5"></td><td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>` +
-      `<td class="assumed">${fmtPct(r.ret)}</td><td>${fmtNum(r.value, 0)}</td>` +
-      `<td${bg(cAll(r.pctAll))}>${fmtPct(r.pctAll)}</td><td class="l">${escapeHtml(r.name)}</td></tr>`;
+  // Illiquid rows, by asset class
+  iGroups.forEach(g => {
+    h += `<tr class="class-row illiquid" onclick="toggleClassGroup('${g.key}')" title="${g.open ? 'Collapse' : 'Expand'}">${groupCell(g)}` +
+      `<td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>` +
+      `<td class="assumed">${fmtPct(g.ret)}</td><td>${fmtNum(g.value, 0)}</td>` +
+      `<td style="${dataBar(g.pctAll, maxAll)}">${fmtPct(g.pctAll)}</td></tr>`;
+    if (!g.open) return;
+    g.rows.forEach(r => {
+      h += `<tr class="illiquid in-class"><td class="l"></td><td class="l fname" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</td>` +
+        `<td colspan="4"></td><td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>` +
+        `<td class="assumed">${fmtPct(r.ret)}</td><td>${fmtNum(r.value, 0)}</td>` +
+        `<td style="${dataBar(r.pctAll, maxAll)}">${fmtPct(r.pctAll)}</td></tr>`;
+    });
   });
 
   // Grand total (liquid + illiquid)
-  h += '<tr class="total"><td class="l" colspan="6" style="border-top:none"></td><td class="sep" style="border-top:none"></td><td style="border-top:none"></td><td class="gap" style="border-top:none"></td><td colspan="3" style="border-top:none"></td>' +
-       `<td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 0)}</td><td>${t.allValue ? '100%' : ''}</td><td class="l">All assets</td></tr>`;
+  h += '<tr class="total"><td class="l row-title" colspan="6" style="border-top:none">All assets</td><td class="sep" style="border-top:none"></td><td style="border-top:none"></td><td class="gap" style="border-top:none"></td><td colspan="3" style="border-top:none"></td>' +
+       `<td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 0)}</td><td>${t.allValue ? '100%' : ''}</td></tr>`;
   h += '</tbody>';
   document.getElementById('pf-table').innerHTML = h;
   renderAllocation(pf);
@@ -1049,7 +1135,7 @@ function renderAllocation(pf) {
   const a = computeAllocation(pf);
   document.getElementById('alloc-table').innerHTML = allocationTableHtml(a.byClass, 'main', { bars: true });
   document.getElementById('alloc-eq-table').innerHTML = allocationTableHtml(a.equities, 'eq', {
-    firstCol: 'Equity subclass', label: s => s.replace(/^Equity\s+/, ''), plainTotal: true,
+    bars: true, firstCol: 'Equity subclass', label: s => s.replace(/^Equity\s+/, ''), plainTotal: true,
   });
   renderCurrentSlide();   // titles, Prev/Next state, and (when presenting) the fit for new data
 }
