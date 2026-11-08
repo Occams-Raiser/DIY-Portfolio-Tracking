@@ -162,6 +162,14 @@
   table.pf tr.class-row .cnt { font-weight: 400; color: #999; }
   table.pf tr.in-class td.fname { padding-left: 25px; }
   .pf-group-btns { display: flex; gap: 8px; margin: 0 0 8px; }
+  /* Equity rows inside "Equities": flag + size, right-aligned in the first column next to the name. */
+  td.tagcell { text-align: right; padding-right: 4px; }
+  table.tax-rates { border-collapse: collapse; margin: 4px 0 6px; width: auto; min-width: 440px; }
+  table.tax-rates th { text-align: left; font-size: 13px; color: #555; padding: 6px 10px; border-bottom: 1px solid #ccc; }
+  table.tax-rates td { padding: 6px 10px; border-bottom: 1px solid #f0f0f0; }
+  table.tax-rates input { width: 120px; text-align: right; }
+  .eq-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
+  .eq-tag .flag { display: block; border: 1px solid #ccc; border-radius: 1px; }
 
   /* ── Slide 2: value by owner / beneficiary ── */
   .own-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -173,6 +181,8 @@
   .reset-btn { border-color: var(--orange); color: var(--orange); }
   .own-filters { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
   .msel { position: relative; display: flex; flex-direction: column; gap: 3px; }
+  .acct-tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 10px; }
+  #acct-col-picker .msel-btn { min-width: 210px; }
   .msel-lbl { font-size: 12px; font-weight: 600; color: #555; margin-right: 2px; }
   .msel-btn { min-width: 190px; text-align: left; padding: 6px 10px; font-size: 13.5px; border: 1.5px solid #ccc; border-radius: 8px;
               background: white; color: #1a1a1a; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
@@ -337,6 +347,7 @@
   <div id="screen-app" class="card wide hidden">
     <div class="tabs">
       <button class="tab active" onclick="switchTab('app','portfolio',this)">Portfolio</button>
+      <button class="tab" onclick="switchTab('app','tax',this)">Tax Liabilities</button>
       <button class="tab" onclick="switchTab('app','holdings',this)">Setup</button>
       <button class="tab" onclick="switchTab('app','account',this)">User Admin</button>
     </div>
@@ -441,8 +452,8 @@
             Upload an Excel (or CSV) file in the template's columns. A row with an <code>id</code> (from Download accounts)
             updates that account; a row without one adds a new account. A blank cell keeps the account's current value.
             Accounts not in the file stay as they are. You'll see a preview before anything is saved. If a pick-list cell
-            (asset class, owner, beneficiary, custodian, liquidity) has a value that isn't on the list, the preview asks you to
-            accept it (adding it to the list), change it, or reject the upload.
+            (asset class, owner, beneficiary, custodian, liquidity, retirement) has a value that isn't on the list, the preview asks
+            you to accept it (adding it to the list), change it, or reject the upload. In the retirement column, "none" clears it.
           </p>
           <input type="file" id="upload-file" accept=".csv,.xlsx,.xls" onchange="handleUpload(this)">
           <div id="upload-preview"></div>
@@ -458,6 +469,8 @@
           ($ thousands) and its assumed annual return. Liquidity defaults to Liquid when there's a ticker or the asset class
           is Cash. Beneficiary fills in from the Account owner. Clear "Show" to gray a fund out on the Portfolio tab.
         </p>
+        <div class="acct-tools"><div id="acct-col-picker"></div>
+          <span class="muted" style="font-size:12.5px">Numbers are rounded; click one to see or edit the exact value.</span></div>
         <div class="tbl-wrap"><table class="ed wide-ed" id="ed-accounts"></table></div>
         <div class="row-actions admin-only">
           <button class="btn btn-secondary btn-sm" onclick="addRow()">+ Add account</button>
@@ -479,6 +492,25 @@
             type DELETE. Prices and user sign-ins aren't affected. To restore, upload the backup file.
           </div>
           <button class="btn btn-danger" onclick="deleteAllAccounts()">Delete all accounts…</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tax Liabilities: collapsible sections (GTIA style guide §10a). Only Admins can edit. -->
+    <div class="tab-pane" id="tab-app-tax">
+      <h3 style="margin-top:0;cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('tax-rates')">
+        <span id="section-arrow-tax-rates" style="display:inline-block;width:16px">▾</span>Tax rates
+      </h3>
+      <div id="section-body-tax-rates">
+        <p class="desc">
+          The tax rate that applies to each kind of account, used to estimate tax liabilities. Enter percentages
+          (e.g. <code>24</code> for 24%). <span id="tax-readonly-note" class="hidden">Only Admins can change these.</span>
+        </p>
+        <table class="ed tax-rates" id="tax-rates-table"></table>
+        <div class="row-actions admin-only">
+          <button class="btn btn-primary btn-sm" id="btn-save-tax" onclick="saveTaxRates()">Save tax rates</button>
+          <button class="btn btn-secondary btn-sm" onclick="taxDirty = false; renderTaxRates()">Discard changes</button>
+          <span class="status" id="tax-status"></span>
         </div>
       </div>
     </div>
@@ -608,6 +640,7 @@ function switchTab(scope, name, btn) {
   if (btn) btn.classList.add('active');
   document.getElementById(`tab-${scope}-${name}`)?.classList.add('active');
   if (name === 'holdings' && !holdingsDirty) renderHoldings();
+  if (name === 'tax' && !taxDirty) renderTaxRates();
   if (name === 'account') {
     renderPwRules();
     if (currentUser && currentUser.isAdmin) { renderPwRulesFor('new-pw', 'new-pw2', 'new-pw-rules'); loadAdminUsers(); }
@@ -729,6 +762,7 @@ function startApp() {
     });
     listeners.push(() => ref.off('value', cb));
   };
+  sub('household/taxRates', v => { taxRates = v || {}; if (!taxDirty) renderTaxRates(); });
   sub('household/options', v => { rebuildLists(v); renderPortfolio(); if (!holdingsDirty) renderHoldings(); });
   sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); convertAccountsIfNeeded(); });
   sub('prices', v => { prices = v || {}; renderPortfolio(); });
@@ -959,11 +993,44 @@ function sortTh(key, label, cls = '') {
 /* ── Slide 1: rows grouped by asset class, each group collapsible (all start collapsed) ── */
 const pfExpanded = new Set();   // keys 'L:<class>' (funds) / 'I:<class>' (illiquid) the viewer has opened
 
-// Groups rows by asset class, with subtotals: value, % of liquid / all assets, and value-weighted
-// YTD, 5-year and assumed returns (same rules as the totals). Order follows the column sort.
+/* ── Equities as one group (slides 1 and 2) ──
+   The four equity classes (and any added class starting "Equity") share an "Equities" group; inside
+   it each row is tagged with a small flag and its size: "Equity US Large-cap" → 🇺🇸 Large.
+   Flags are inline SVG: Windows doesn't draw flag emoji. */
+const EQUITIES = 'Equities';
+function isEquityClass(c) { return EQUITY_CLASSES.includes(c) || /^Equity\b/.test(c || ''); }
+function displayClass(c) { return isEquityClass(c) ? EQUITIES : c; }
+// Position of a display class in list order (Equities where the first equity class is).
+function classPos(c) {
+  if (c === EQUITIES) return 0;
+  const i = ASSET_CLASSES.indexOf(c);
+  return i < 0 ? ASSET_CLASSES.length : i;
+}
+const FLAG_SVG = {
+  US: '<svg class="flag" viewBox="0 0 19 10" width="19" height="10" aria-label="US"><rect width="19" height="10" fill="#B22234"/>' +
+      '<path d="M0 1.15h19M0 2.7h19M0 4.23h19M0 5.77h19M0 7.3h19M0 8.85h19" stroke="#fff" stroke-width=".77"/>' +
+      '<rect width="7.6" height="5.4" fill="#3C3B6E"/></svg>',
+  EU: '<svg class="flag" viewBox="0 0 15 10" width="15" height="10" aria-label="EU"><rect width="15" height="10" fill="#039"/>' +
+      Array.from({ length: 12 }, (_, i) => {
+        const t = i * Math.PI / 6;
+        return `<circle cx="${(7.5 + 3.3 * Math.sin(t)).toFixed(2)}" cy="${(5 - 3.3 * Math.cos(t)).toFixed(2)}" r=".55" fill="#FC0"/>`;
+      }).join('') + '</svg>',
+};
+// The tag shown in an equity row's first column: flag + Broad / Large / Small.
+function equityTagHtml(c) {
+  if (!isEquityClass(c)) return '';
+  const region = /\bEU\b/.test(c) ? 'EU' : /\bUS\b/.test(c) ? 'US' : '';
+  const size = /broad/i.test(c) ? 'Broad' : /large/i.test(c) ? 'Large' : /small/i.test(c) ? 'Small'
+    : c.replace(/^Equity\s*(US|EU)?\s*/, '');
+  return `<span class="eq-tag" title="${escapeHtml(c)}">${FLAG_SVG[region] || ''}<span>${escapeHtml(size)}</span></span>`;
+}
+
+// Groups rows by asset class (the equity classes together as "Equities"), with subtotals: value,
+// % of liquid / all assets, and value-weighted YTD, 5-year and assumed returns (same rules as the
+// totals). Order follows the column sort.
 function classGroups(rows, side, liqValue, allValue) {
   const map = new Map();
-  rows.forEach(r => { const k = r.assetClass || ''; if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
+  rows.forEach(r => { const k = displayClass(r.assetClass || ''); if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
   const groups = [...map].map(([cls, rs]) => {
     const value = rs.reduce((s, r) => s + (r.value || 0), 0);
     const key = side + ':' + cls;
@@ -974,7 +1041,12 @@ function classGroups(rows, side, liqValue, allValue) {
       ytd: weightedAvg(rs, 'ytd'), tr5y: weightedAvg(rs, 'tr5y'), ret: weightedAvg(rs, 'ret'),
     };
   });
-  const pos = g => { const i = ASSET_CLASSES.indexOf(g.cls); return i < 0 ? ASSET_CLASSES.length : i; };
+  const pos = g => classPos(g.cls);
+  // Inside Equities, rows go in equity-class order (Broad, Large, Small, EU) unless a column is sorted.
+  const eq = groups.find(g => g.cls === EQUITIES);
+  if (eq && (sortKey === 'order' || sortKey === 'assetClass')) {
+    eq.rows = [...eq.rows].sort((a, b) => classPos(a.assetClass) - classPos(b.assetClass) || (a.order ?? 0) - (b.order ?? 0));
+  }
   const numericKeys = side === 'L' ? ['tr5y', 'ytd', 'value', 'pctLiq'] : ['value'];
   groups.sort((a, b) => {
     if (!a.cls || !b.cls) return !a.cls && !b.cls ? 0 : !a.cls ? 1 : -1;   // Unclassified last
@@ -998,8 +1070,8 @@ function setAllClassGroups(open) {
   pfExpanded.clear();
   if (open) {
     const pf = computePortfolio(assets, prices);
-    pf.liquid.forEach(r => pfExpanded.add('L:' + (r.assetClass || '')));
-    pf.illiquid.forEach(r => pfExpanded.add('I:' + (r.assetClass || '')));
+    pf.liquid.forEach(r => pfExpanded.add('L:' + displayClass(r.assetClass || '')));
+    pf.illiquid.forEach(r => pfExpanded.add('I:' + displayClass(r.assetClass || '')));
   }
   renderPortfolio();
   fitPresentZoom();
@@ -1079,7 +1151,7 @@ function renderPortfolio() {
     g.rows.forEach(r => {
       const noPrice = r.value === null;
       h += `<tr class="in-class${r.active ? '' : ' inactive'}">` +
-        `<td class="l"></td>` +
+        `<td class="tagcell">${equityTagHtml(r.assetClass)}</td>` +
         `<td class="l fname" title="${escapeHtml(r.name)}"><span class="bank">🏛</span>${escapeHtml(r.name)}</td>` +
         `<td class="l">${escapeHtml(r.ticker)}</td>` +
         (noPrice ? `<td class="nodata" colspan="3">no price</td>` :
@@ -1112,7 +1184,7 @@ function renderPortfolio() {
       `<td style="${dataBar(g.pctAll, maxAll)}">${fmtPct(g.pctAll)}</td></tr>`;
     if (!g.open) return;
     g.rows.forEach(r => {
-      h += `<tr class="illiquid in-class"><td class="l"></td><td class="l fname" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</td>` +
+      h += `<tr class="illiquid in-class"><td class="tagcell">${equityTagHtml(r.assetClass)}</td><td class="l fname" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</td>` +
         `<td colspan="4"></td><td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>` +
         `<td class="assumed"${bg(cTot(r.ytd))}${proRated(r)}>${fmtPct(r.ytd)}</td><td>${fmtNum(r.value, 0)}</td>` +
         `<td style="${dataBar(r.pctAll, maxAll)}">${fmtPct(r.pctAll)}</td></tr>`;
@@ -1319,8 +1391,11 @@ function computeOwnerSlide(pf) {
     shown.push({ ...a, frac, shownValue: a.value === null ? null : a.value * frac });
   });
   const opts = filterOptions(accts);
-  const groups = opts.cls.map(cls => {
-    const rows = shown.filter(a => a.cls === cls).sort((x, y) => x.order - y.order);
+  // Display groups: the equity classes together as "Equities" (rows in equity-class order), then the rest.
+  const groupKeys = [...new Set(opts.cls.map(displayClass))];
+  const groups = groupKeys.map(cls => {
+    const rows = shown.filter(a => displayClass(a.cls) === cls)
+      .sort((x, y) => (cls === EQUITIES ? classPos(x.cls) - classPos(y.cls) : 0) || x.order - y.order);
     const value = rows.reduce((s, a) => s + (a.shownValue || 0), 0);
     return { cls, rows, value, pct: base ? value / base : null, open: ownerExpanded.has(cls) };
   }).filter(g => g.rows.length);
@@ -1406,7 +1481,7 @@ function toggleOwnerGroup(cls) {
 }
 function setAllOwnerGroups(open) {
   ownerExpanded.clear();
-  if (open) (lastOwnerOpts.cls || []).forEach(c => ownerExpanded.add(c));
+  if (open) (lastOwnerOpts.cls || []).forEach(c => ownerExpanded.add(displayClass(c)));
   renderOwnerSlide();
 }
 
@@ -1501,7 +1576,7 @@ function renderOwnerSlide(pf) {
     g.rows.forEach(a => {
       const part = a.frac < 0.999 && a.value !== null ? ` title="${Math.round(a.frac * 100)}% share of ${fmtNum(a.value, 0)}"` : '';
       const nm = a.ticker && a.name !== a.ticker ? `${a.name} (${a.ticker})` : a.name || a.ticker;
-      h += `<tr class="in-class"><td></td>` +
+      h += `<tr class="in-class"><td class="tagcell">${equityTagHtml(a.cls)}</td>` +
         `<td class="l oname" title="${escapeHtml(nm)} — ${escapeHtml(a.owner)}">${escapeHtml(nm)}</td>` +
         (a.shownValue === null ? `<td class="nodata">no price</td><td></td>`
           : `<td${part}>${fmtNum(a.shownValue, 0)}${part ? '<span class="share-mark">*</span>' : ''}</td>` +
@@ -1613,7 +1688,13 @@ const LIQUIDITY = ['Liquid', 'Illiquid'];   // fixed: never extended
 // these arrays (pick lists, uploads, the "Allowed values" sheet, slide ordering) sees them.
 const OPTION_LISTS = { assetClass: ASSET_CLASSES, owner: ACCOUNT_OWNERS, beneficiary: BENEFICIARIES, custodian: CUSTODIANS };
 const BASE_OPTIONS = Object.fromEntries(Object.entries(OPTION_LISTS).map(([k, l]) => [k, l.slice()]));
-const LIST_LABELS = { assetClass: 'Asset class', owner: 'Account owner', beneficiary: 'Beneficiary', custodian: 'Custodian', liquidity: 'Liquidity' };
+const LIST_LABELS = { assetClass: 'Asset class', owner: 'Account owner', beneficiary: 'Beneficiary', custodian: 'Custodian',
+                      liquidity: 'Liquidity', retirement: 'Retirement' };
+// Retirement account type; blank = not a retirement account ("[none]"). Fixed, like Liquidity.
+const RETIREMENT = ['Roth', 'Traditional'];
+// Pick lists that can't be extended from an upload (an unknown value can only be changed).
+const FIXED_LISTS = { liquidity: LIQUIDITY, retirement: RETIREMENT };
+function listFor(key) { return FIXED_LISTS[key] || OPTION_LISTS[key]; }
 let customOptions = {};
 function listKeyOf(field) { return field === 'beneficiary2' ? 'beneficiary' : field; }
 function rebuildLists(stored) {
@@ -1638,7 +1719,7 @@ const BENEFICIARY_DEFAULTS = {
 // Owner labels that were renamed: old stored or uploaded value → current label.
 const OWNER_RENAMES = { 'wros': 'Dan & Alison' };
 function renameOwner(v) { return OWNER_RENAMES[String(v || '').trim().toLowerCase()] || v; }
-const PICK_FIELDS = ['assetClass', 'owner', 'beneficiary', 'beneficiary2', 'custodian'];
+const PICK_FIELDS = ['assetClass', 'owner', 'beneficiary', 'beneficiary2', 'custodian', 'retirement'];
 
 // Only an illiquid Bonds account without a ticker may have a negative value (e.g. a loan or other
 // debt). The database rules check the same thing.
@@ -1732,7 +1813,7 @@ function toggleCollapsibleSection(key) {
 }
 
 /* ── Accounts table ── */
-const ACCOUNT_COLUMNS = ['Asset class', 'Account owner', 'Beneficiary', 'Beneficiary 2', 'Custodian', 'Liquidity',
+const ACCOUNT_COLUMNS = ['Asset class', 'Account owner', 'Beneficiary', 'Beneficiary 2', 'Custodian', 'Liquidity', 'Retirement',
   'Ticker', 'Name', 'Units', 'Value ($K)', 'Cost basis ($K)', 'Assumed return (%)', 'Show', ''];
 
 function pick(list, value, cls, editable, onchange, blank = true) {
@@ -1742,12 +1823,61 @@ function pick(list, value, cls, editable, onchange, blank = true) {
   return `<select class="${cls}"${editable ? '' : ' disabled'} onchange="markDirty();${onchange || ''}">${opts.join('')}</select>`;
 }
 
+/* ── Rounded number cells: whole numbers (assumed return to 0.1%) until clicked, then the exact value. ── */
+const NUM_DP = { 'f-units': 0, 'f-value': 0, 'f-cost': 0, 'f-ret': 1 };
+function roundedText(cls, raw) {
+  if (raw === '' || raw === null || raw === undefined) return '';
+  const n = Number(raw), dp = NUM_DP[cls] ?? 0;
+  return isFinite(n) ? n.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp }) : String(raw);
+}
+function numFocus(inp) { inp.value = inp.dataset.raw || ''; inp.select(); }
+function numInput(inp) { inp.dataset.raw = inp.value.replace(/,/g, '').trim(); markDirty(); }
+function numBlur(inp) { inp.value = roundedText(inp.classList[0], inp.dataset.raw); }
+function rawVal(inp) { return inp.dataset.raw !== undefined ? inp.dataset.raw : inp.value; }
+
+/* ── Show / hide columns of the Accounts table (remembered on this device) ── */
+const HIDDEN_COLS_KEY = 'diy-setup-hidden-columns-v1';
+let hiddenAccountCols = (() => { try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_COLS_KEY) || '[]')); } catch (e) { return new Set(); } })();
+let colPickerOpen = false;
+const PICKABLE_COLS = () => ACCOUNT_COLUMNS.slice(0, -1);   // every column but the remove (×) button
+function applyHiddenColumns() {
+  const css = ACCOUNT_COLUMNS.map((c, i) => hiddenAccountCols.has(c) ? `#ed-accounts tr:not(.empty-row) > :nth-child(${i + 1}) { display: none; }` : '').join('\n');
+  let el = document.getElementById('acct-col-style');
+  if (!el) { el = document.createElement('style'); el.id = 'acct-col-style'; document.head.appendChild(el); }
+  el.textContent = css;
+  renderColumnPicker();
+}
+function renderColumnPicker() {
+  const box = document.getElementById('acct-col-picker');
+  if (!box) return;
+  const cols = PICKABLE_COLS(), nHidden = cols.filter(c => hiddenAccountCols.has(c)).length;
+  box.innerHTML = `<div class="msel"><button type="button" class="msel-btn${nHidden ? ' filtered' : ''}" onclick="toggleColPicker(event)">` +
+    `Columns: ${nHidden ? `${cols.length - nHidden} of ${cols.length} shown` : 'all shown'} <span class="msel-caret">▾</span></button>` +
+    (colPickerOpen ? `<div class="msel-menu"><label class="msel-all"><input type="checkbox"${nHidden ? '' : ' checked'} onchange="setAllColumns(this.checked)"> Show / hide all</label>` +
+      cols.map(c => `<label><input type="checkbox"${hiddenAccountCols.has(c) ? '' : ' checked'} data-col="${escapeHtml(c)}" onchange="setColumnShown(this.dataset.col, this.checked)"> ${escapeHtml(c)}</label>`).join('') +
+      `</div>` : '') + `</div>`;
+  const all = box.querySelector('.msel-all input');
+  if (all) all.indeterminate = nHidden > 0 && nHidden < cols.length;
+}
+function saveHiddenColumns() { try { localStorage.setItem(HIDDEN_COLS_KEY, JSON.stringify([...hiddenAccountCols])); } catch (e) { /* private mode */ } }
+function setColumnShown(col, shown) { if (shown) hiddenAccountCols.delete(col); else hiddenAccountCols.add(col); saveHiddenColumns(); applyHiddenColumns(); }
+function setAllColumns(shown) { hiddenAccountCols = shown ? new Set() : new Set(PICKABLE_COLS()); saveHiddenColumns(); applyHiddenColumns(); }
+function toggleColPicker(ev) { if (ev) ev.stopPropagation(); colPickerOpen = !colPickerOpen; renderColumnPicker(); }
+document.addEventListener('click', e => {
+  if (colPickerOpen && !e.target.closest('#acct-col-picker')) { colPickerOpen = false; renderColumnPicker(); }
+});
+
 function accountRowHtml(a, editable) {
   const dis = editable ? '' : ' disabled';
   const hasT = !!a.ticker;
   const valueK = accountValueK(a);
   const ret = typeof a.assumedReturn === 'number' ? +(a.assumedReturn * 100).toFixed(4) : '';
-  const num = (cls, v, extra = '') => `<input type="number" step="any" class="${cls}" value="${v ?? ''}"${extra} oninput="markDirty()">`;
+  // Number cells show a rounded figure until clicked; the exact value lives in data-raw (see numFocus).
+  const num = (cls, v, extra = '') => {
+    const raw = v === null || v === undefined ? '' : String(v);
+    return `<input type="text" inputmode="decimal" class="${cls}" data-raw="${escapeHtml(raw)}" value="${escapeHtml(roundedText(cls, raw))}"${extra} ` +
+      `onfocus="numFocus(this)" oninput="numInput(this)" onblur="numBlur(this)">`;
+  };
   // data-liq-touched: an existing account keeps its stored Liquidity; a new row follows the defaults
   // (ticker or Cash → Liquid) until someone picks a Liquidity by hand.
   return `<tr data-id="${escapeHtml(a.id || '')}" data-order="${a.id ? a.order : ''}" data-liq-touched="${a.id ? '1' : ''}">` +
@@ -1757,6 +1887,7 @@ function accountRowHtml(a, editable) {
     `<td style="width:135px">${pick(BENEFICIARIES, a.beneficiary2, 'f-ben2', editable)}</td>` +
     `<td style="width:135px">${pick(CUSTODIANS, a.custodian, 'f-cust', editable)}</td>` +
     `<td style="width:105px">${pick(LIQUIDITY, a.liquidity || defaultLiquidity(a.ticker, a.assetClass), 'f-liq', editable, 'this.closest(\'tr\').dataset.liqTouched=\'1\'', false)}</td>` +
+    `<td style="width:125px">${pick(RETIREMENT, a.retirement, 'f-retire', editable)}</td>` +
     `<td style="width:95px"><input type="text" class="f-ticker" value="${escapeHtml(a.ticker || '')}"${dis} oninput="markDirty();onTickerInput(this)" placeholder="—"></td>` +
     `<td style="width:240px"><input type="text" class="f-name" value="${escapeHtml(a.name || '')}"${dis} oninput="markDirty()" placeholder="${hasT ? '(from price feed)' : 'Account name'}"></td>` +
     `<td class="num" style="width:115px">${num('f-units', hasT ? a.units : '', editable && hasT ? '' : ' disabled')}</td>` +
@@ -1775,14 +1906,14 @@ function isAdminUser() { return !!(currentUser && currentUser.isAdmin); }
 const ACCOUNT_SORT = {   // column index → sort key and how to read the row's current value
   0: { key: 'assetClass', val: tr => listPos(ASSET_CLASSES, tr.querySelector('.f-class').value) },
   1: { key: 'owner', val: tr => listPos(ACCOUNT_OWNERS, tr.querySelector('.f-owner').value) },
-  6: { key: 'ticker', val: tr => normTicker(tr.querySelector('.f-ticker').value) },
-  7: { key: 'name', val: tr => tr.querySelector('.f-name').value.trim() },
+  7: { key: 'ticker', val: tr => normTicker(tr.querySelector('.f-ticker').value) },
+  8: { key: 'name', val: tr => tr.querySelector('.f-name').value.trim() },
 };
 let accountSort = { key: null, dir: 'asc' };
 function listPos(list, v) { const i = list.indexOf(v); return !v ? null : i < 0 ? list.length : i; }
 function accountHeaderHtml() {
   return '<tr>' + ACCOUNT_COLUMNS.map((c, i) => {
-    const align = i >= 8 && i <= 11 ? 'text-align:right' : i === 12 ? 'text-align:center' : '';
+    const align = i >= 9 && i <= 12 ? 'text-align:right' : i === 13 ? 'text-align:center' : '';
     const s = ACCOUNT_SORT[i];
     if (!s) return `<th${align ? ` style="${align}"` : ''}>${c}</th>`;
     const on = accountSort.key === s.key;
@@ -1817,9 +1948,10 @@ function renderHoldings() {
   document.getElementById('ed-accounts').innerHTML =
     '<thead>' + accountHeaderHtml() + '</thead><tbody>' +
     (rows.map(a => accountRowHtml(a, editable)).join('') ||
-      `<tr><td colspan="${ACCOUNT_COLUMNS.length}" class="muted" style="padding:12px">No accounts yet.${editable ? ' Click "+ Add account" or upload a file.' : ''}</td></tr>`) +
+      `<tr class="empty-row"><td colspan="${ACCOUNT_COLUMNS.length}" class="muted" style="padding:12px">No accounts yet.${editable ? ' Click "+ Add account" or upload a file.' : ''}</td></tr>`) +
     '</tbody>';
   applyAccountSort();
+  applyHiddenColumns();
   holdingsDirty = false;
   document.getElementById('save-status').textContent = '';
 }
@@ -1867,9 +1999,10 @@ function readEditor() {
     const q = c => tr.querySelector(c);
     const ticker = normTicker(q('.f-ticker').value);
     const name = q('.f-name').value.trim();
-    const unitsRaw = q('.f-units').value, valueRaw = q('.f-value').value, costRaw = q('.f-cost').value, retRaw = q('.f-ret').value;
+    // The exact values (the cells show rounded ones).
+    const unitsRaw = rawVal(q('.f-units')), valueRaw = rawVal(q('.f-value')), costRaw = rawVal(q('.f-cost')), retRaw = rawVal(q('.f-ret'));
     const picks = { assetClass: q('.f-class').value, owner: q('.f-owner').value, beneficiary: q('.f-ben').value,
-                    beneficiary2: q('.f-ben2').value, custodian: q('.f-cust').value };
+                    beneficiary2: q('.f-ben2').value, custodian: q('.f-cust').value, retirement: q('.f-retire').value };
     const blank = !ticker && !name && (unitsRaw === '' || q('.f-units').disabled) && valueRaw === '' &&
                   (costRaw === '' || Number(costRaw) === 0) && retRaw === '' && !Object.values(picks).some(Boolean);
     if (blank) return;
@@ -1932,6 +2065,7 @@ const FILE_COLUMNS = [
   { col: 'beneficiary_2', key: 'beneficiary2', list: () => BENEFICIARIES, wch: 14 },
   { col: 'custodian', key: 'custodian', list: () => CUSTODIANS, wch: 13 },
   { col: 'liquidity', key: 'liquidity', list: () => LIQUIDITY, wch: 10 },
+  { col: 'retirement', key: 'retirement', list: () => RETIREMENT.concat(['none']), wch: 12 },
   { col: 'ticker', key: 'ticker', wch: 9 },
   { col: 'name', key: 'name', wch: 40 },
   { col: 'units', key: 'units', wch: 12 },
@@ -2079,7 +2213,7 @@ function num(v) {
 }
 
 const FIELD_LABELS = { assetClass: 'class', owner: 'owner', beneficiary: 'beneficiary', beneficiary2: 'beneficiary 2',
-  custodian: 'custodian', liquidity: 'liquidity', ticker: 'ticker', name: 'name', units: 'units', value: 'value $K',
+  custodian: 'custodian', liquidity: 'liquidity', retirement: 'retirement', ticker: 'ticker', name: 'name', units: 'units', value: 'value $K',
   costBasis: 'cost basis $K', assumedReturn: 'assumed return', active: 'show' };
 function fieldText(k, v) {
   if (v === undefined || v === null || v === '') return '—';
@@ -2094,11 +2228,11 @@ function fieldText(k, v) {
 // res: { action: 'accept' } | { action: 'replace', value } | { action: 'type', value }.
 function resolveUnknown(res, u) {
   if (!res) return '';
-  const list = u.list === 'liquidity' ? LIQUIDITY : OPTION_LISTS[u.list];
+  const list = listFor(u.list);
   if (res.action === 'accept') return u.canAccept ? u.value : '';
   const t = String(res.value || '').trim();
   if (!t || t.length > 40) return '';
-  return matchOption(list, t) || (u.list === 'liquidity' ? '' : t);
+  return matchOption(list, t) || (FIXED_LISTS[u.list] ? '' : t);
 }
 
 // Turns raw rows (first row = headers) into proposed changes against the current accounts.
@@ -2114,7 +2248,7 @@ function buildUploadPlan(rawRows, current, resolutions = {}) {
     costBasis: col('cost_basis_k', 'cost_basis', 'cost'), ret: col('assumed_return_pct', 'assumed_return', 'return_pct', 'return'),
     assetClass: col('asset_class', 'assetclass', 'class'), owner: col('account_owner', 'accountowner', 'owner'),
     beneficiary: col('beneficiary', 'beneficiary_1', 'beneficiary1'), beneficiary2: col('beneficiary_2', 'beneficiary2'),
-    custodian: col('custodian'), liquidity: col('liquidity'),
+    custodian: col('custodian'), liquidity: col('liquidity'), retirement: col('retirement'),
   };
   const errors = [];
   if (C.ticker < 0 && C.name < 0 && C.id < 0) errors.push('No "ticker", "name" or "id" column found — use the template headers.');
@@ -2122,7 +2256,7 @@ function buildUploadPlan(rawRows, current, resolutions = {}) {
   const cur = {};
   Object.entries(current || {}).forEach(([id, a]) => { cur[id] = { id, ...normalizeAccount(a) }; });
   const lists = { assetClass: ASSET_CLASSES, owner: ACCOUNT_OWNERS, beneficiary: BENEFICIARIES, beneficiary2: BENEFICIARIES,
-                  custodian: CUSTODIANS, liquidity: LIQUIDITY };
+                  custodian: CUSTODIANS, liquidity: LIQUIDITY, retirement: RETIREMENT };
   const items = [], seenIds = new Set(), unknowns = {};
 
   rawRows.slice(1).forEach((r, i) => {
@@ -2144,11 +2278,13 @@ function buildUploadPlan(rawRows, current, resolutions = {}) {
     for (const [f, list] of Object.entries(lists)) {
       const raw = str(C[f]);
       const val = f === 'owner' ? renameOwner(raw) : raw;
+      // Retirement "none" clears it (a blank cell keeps the current value, as everywhere).
+      if (f === 'retirement' && /^\[?(none|no|n\/a)\]?$/i.test(val)) { delete next.retirement; continue; }
       let m = matchOption(list, val);
       if (m === null) {
         const lk = listKeyOf(f), key = lk + '|' + optKey(val);
         const u = unknowns[key] || (unknowns[key] = { key, list: lk, value: val, lines: [],
-          canAccept: lk !== 'liquidity' && val.length <= 40 });
+          canAccept: !FIXED_LISTS[lk] && val.length <= 40 });
         if (!u.lines.includes(line)) u.lines.push(line);
         m = resolveUnknown(resolutions[key], u);
         if (!m) { pending.push(`${LIST_LABELS[lk].toLowerCase()} "${val}"`); continue; }
@@ -2201,7 +2337,7 @@ function buildUploadPlan(rawRows, current, resolutions = {}) {
   const additions = {};
   Object.values(unknowns).forEach(u => {
     const v = resolveUnknown(resolutions[u.key], u);
-    if (!v || u.list === 'liquidity' || matchOption(OPTION_LISTS[u.list], v) !== null) return;
+    if (!v || FIXED_LISTS[u.list] || matchOption(OPTION_LISTS[u.list], v) !== null) return;
     const add = additions[u.list] || (additions[u.list] = []);
     if (matchOption(add, v) === null) add.push(v);
   });
@@ -2252,12 +2388,12 @@ function unknownsPanelHtml(p) {
   const body = p.unknowns.map((u, i) => {
     const res = p.resolutions[u.key];
     const cur = !res ? '' : res.action === 'accept' ? 'accept' : res.action === 'type' ? 'type' : 'replace:' + res.value;
-    const list = u.list === 'liquidity' ? LIQUIDITY : OPTION_LISTS[u.list];
+    const list = listFor(u.list);
     const opt = (val, text) => `<option value="${escapeHtml(val)}"${val === cur ? ' selected' : ''}>${escapeHtml(text)}</option>`;
     const sel = `<select onchange="setUnknownAction(${i}, this)">` + opt('', 'Choose…') +
       (u.canAccept ? opt('accept', `Accept "${u.value}" (add it to the list)`) : '') +
       `<optgroup label="Edit: change it to">` + list.map(c => opt('replace:' + c, c)).join('') + `</optgroup>` +
-      (u.list === 'liquidity' ? '' : opt('type', 'Edit: type a different value…')) + `</select>`;
+      (FIXED_LISTS[u.list] ? '' : opt('type', 'Edit: type a different value…')) + `</select>`;
     let extra = '';
     if (res && res.action === 'type') {
       const ok = resolveUnknown(res, u);
@@ -2336,6 +2472,57 @@ async function confirmUpload() {
     if (Object.entries(updates).some(([k, a]) => k.startsWith('assets/') && a.ticker && !before.has(a.ticker))) refreshPrices(true);
   } catch (e) {
     alert('Could not save the upload: ' + e.message);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   TAX LIABILITIES TAB — Tax rates section
+   household/taxRates: { roth, traditional, capGains } as fractions (0.24 = 24%), plus who saved them.
+   Only Admins can save (the database rules check it too).
+══════════════════════════════════════════════════════════════════════ */
+const TAX_RATE_TYPES = [
+  { key: 'roth', label: 'Retirement — Roth' },
+  { key: 'traditional', label: 'Retirement — Traditional' },
+  { key: 'capGains', label: 'Non-retirement capital gains' },
+];
+let taxRates = {}, taxDirty = false;
+
+function renderTaxRates() {
+  const tbl = document.getElementById('tax-rates-table');
+  if (!tbl || !currentUser) return;
+  const editable = isAdminUser();
+  document.getElementById('tax-readonly-note').classList.toggle('hidden', editable);
+  tbl.innerHTML = '<thead><tr><th>Fund type</th><th style="text-align:right">Tax rate (%)</th></tr></thead><tbody>' +
+    TAX_RATE_TYPES.map(t => {
+      const v = typeof taxRates[t.key] === 'number' ? +(taxRates[t.key] * 100).toFixed(4) : '';
+      return `<tr><td>${escapeHtml(t.label)}</td><td class="num" style="width:150px"><input type="number" step="any" min="0" max="100" ` +
+        `class="f-tax" data-key="${t.key}" value="${v}" placeholder="—"${editable ? '' : ' disabled'} ` +
+        `oninput="taxDirty = true; document.getElementById('tax-status').textContent = 'Unsaved changes'"></td></tr>`;
+    }).join('') + '</tbody>';
+  const st = document.getElementById('tax-status');
+  st.textContent = taxRates.updatedAt ? `Last saved ${fmtDateTime(taxRates.updatedAt)} by ${taxRates.updatedBy || 'an Admin'}` : '';
+}
+
+async function saveTaxRates() {
+  if (!isAdminUser()) return;
+  const next = {}, errors = [];
+  document.querySelectorAll('#tax-rates-table .f-tax').forEach(inp => {
+    const t = TAX_RATE_TYPES.find(x => x.key === inp.dataset.key);
+    if (inp.value === '') return;   // blank = not set
+    const n = Number(inp.value);
+    if (!isFinite(n) || n < 0 || n > 100) errors.push(`${t.label}: enter a percentage from 0 to 100.`);
+    else next[t.key] = n / 100;
+  });
+  if (errors.length) { alert('Please fix these first:\n\n' + errors.join('\n')); return; }
+  const btn = document.getElementById('btn-save-tax');
+  btn.disabled = true;
+  try {
+    await db.ref('household/taxRates').set({ ...next, updatedAt: firebase.database.ServerValue.TIMESTAMP, updatedBy: currentUser.email });
+    taxDirty = false;
+  } catch (e) {
+    alert('Could not save the tax rates: ' + e.message + '\n\nIf this says "permission denied", publish the updated database rules (see SETUP.md).');
+  } finally {
+    btn.disabled = false;
   }
 }
 
