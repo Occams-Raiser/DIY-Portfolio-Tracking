@@ -196,6 +196,15 @@
   table.ed td { padding: 4px 6px; border-bottom: 1px solid #f2f2f2; }
   table.ed input[type="text"], table.ed input[type="number"] { padding: 6px 9px; font-size: 16px; }
   table.ed td.num input { text-align: right; }
+  /* The accounts table has 14 columns; it scrolls sideways inside .tbl-wrap on narrow screens. */
+  table.wide-ed { width: max-content; min-width: 100%; }
+  table.wide-ed td { white-space: nowrap; }
+  table.wide-ed select { width: auto; min-width: 100%; }   /* as wide as the longest option, so nothing is cut off */
+  table.wide-ed td, table.wide-ed th { padding-left: 3px; padding-right: 3px; }
+  table.ed input:disabled, table.ed select:disabled { background: #f6f6f6; color: #777; border-color: #e6e6e6; }
+  table.ed td.calc { color: #666; font-size: 13px; text-align: right; padding-right: 10px; }
+  body:not(.is-admin) .admin-only { display: none !important; }
+  .btn-danger { background: var(--red); color: white; }
   table.ed select { width: 100%; padding: 6px 8px; font-size: 16px; border: 1.5px solid #ddd; border-radius: 8px; background: white; color: #1a1a1a; }
   table.ed select:focus { outline: none; border-color: var(--orange); }
   table.ed .rm { background: none; border: none; color: #999; font-size: 18px; cursor: pointer; }
@@ -279,7 +288,7 @@
     <div class="tabs">
       <button class="tab active" onclick="switchTab('app','portfolio',this)">Portfolio</button>
       <button class="tab" onclick="switchTab('app','holdings',this)">Setup</button>
-      <button class="tab" onclick="switchTab('app','account',this)">Account</button>
+      <button class="tab" onclick="switchTab('app','account',this)">User Admin</button>
     </div>
 
     <!-- Portfolio -->
@@ -289,7 +298,6 @@
         <div class="toolbar">
           <span class="status" id="price-status">Loading prices…</span>
           <span class="spacer"></span>
-          <button class="btn btn-secondary btn-sm hide-presenting" onclick="exportCsv()">Export CSV</button>
           <button class="btn btn-secondary btn-sm hide-presenting" id="btn-refresh" onclick="refreshPrices()">Refresh prices</button>
           <button class="btn btn-primary btn-sm" id="present-btn" onclick="togglePresent()">⛶ Present (full screen)</button>
         </div>
@@ -329,34 +337,74 @@
       </div>
     </div>
 
-    <!-- Setup tab (holdings editor + upload) -->
+    <!-- Setup tab: the accounts database. Sections collapse (GTIA style guide §10a).
+         Only Admins can edit, upload or delete; everyone can download (database rules enforce it). -->
     <div class="tab-pane" id="tab-app-holdings">
-      <h3 style="margin-top:0">Upload a file</h3>
-      <p class="desc">
-        Download the Excel template (it's pre-filled with your current holdings), change the units or values, add rows for anything new, save, and upload it. CSV files work too.
-        Rows match by ticker (liquid) or by name (illiquid). Anything not in the file stays as it is.
-        You'll see a preview before anything is saved.
-      </p>
-      <div class="row-actions" style="margin-top:0">
-        <button class="btn btn-secondary btn-sm" onclick="downloadTemplate()">Download template</button>
-        <input type="file" id="upload-file" accept=".csv,.xlsx,.xls" onchange="handleUpload(this)">
+      <div id="setup-readonly-note" class="info-box hidden">
+        You can view and download the accounts. Only Admins can edit, upload, or delete them.
       </div>
-      <div id="upload-preview"></div>
 
-      <h3>Liquid assets</h3>
-      <p class="desc">Units are the number of shares you own. Clear "Show" to gray a fund out on the Portfolio tab.</p>
-      <table class="ed" id="ed-liquid"></table>
-      <div class="row-actions"><button class="btn btn-secondary btn-sm" onclick="addRow('liquid')">+ Add fund</button></div>
+      <h3 style="margin-top:0;cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('setup-download')">
+        <span id="section-arrow-setup-download" style="display:inline-block;width:16px">▸</span>Download
+      </h3>
+      <div id="section-body-setup-download" class="hidden">
+        <p class="desc">
+          <strong>Download template</strong> gives an empty Excel file with the column headers, two example rows, and an
+          "Allowed values" sheet. <strong>Download accounts</strong> gives every account as it is now, in the same columns plus an
+          <code>id</code> column, ready to edit and upload again.
+        </p>
+        <div class="row-actions" style="margin-top:0">
+          <button class="btn btn-secondary btn-sm" onclick="downloadTemplate()">Download template</button>
+          <button class="btn btn-secondary btn-sm" onclick="downloadAccounts()">Download accounts</button>
+        </div>
+      </div>
 
-      <h3>Illiquid assets</h3>
-      <p class="desc">Current value in $ thousands, and the annual return you assume for it.</p>
-      <table class="ed" id="ed-illiquid"></table>
-      <div class="row-actions"><button class="btn btn-secondary btn-sm" onclick="addRow('illiquid')">+ Add asset</button></div>
+      <div class="admin-only">
+        <h3 style="cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('setup-upload')">
+          <span id="section-arrow-setup-upload" style="display:inline-block;width:16px">▸</span>Upload a file
+        </h3>
+        <div id="section-body-setup-upload" class="hidden">
+          <p class="desc">
+            Upload an Excel (or CSV) file in the template's columns. A row with an <code>id</code> (from Download accounts)
+            updates that account; a row without one adds a new account. A blank cell keeps the account's current value.
+            Accounts not in the file stay as they are. You'll see a preview before anything is saved.
+          </p>
+          <input type="file" id="upload-file" accept=".csv,.xlsx,.xls" onchange="handleUpload(this)">
+          <div id="upload-preview"></div>
+        </div>
+      </div>
 
-      <div class="row-actions" style="margin-top:24px">
-        <button class="btn btn-primary" id="btn-save" onclick="saveHoldings()">Save changes</button>
-        <button class="btn btn-secondary" onclick="discardEdits()">Discard changes</button>
-        <span class="status" id="save-status"></span>
+      <h3 style="cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('setup-accounts')">
+        <span id="section-arrow-setup-accounts" style="display:inline-block;width:16px">▸</span>Accounts
+      </h3>
+      <div id="section-body-setup-accounts" class="hidden">
+        <p class="desc">
+          An account with a ticker is valued as units × the latest price; one without a ticker uses the value you enter
+          ($ thousands) and its assumed annual return. Liquidity defaults to Liquid when there's a ticker or the asset class
+          is Cash. Beneficiary fills in from the Account owner. Clear "Show" to gray a fund out on the Portfolio tab.
+        </p>
+        <div class="tbl-wrap"><table class="ed wide-ed" id="ed-accounts"></table></div>
+        <div class="row-actions admin-only">
+          <button class="btn btn-secondary btn-sm" onclick="addRow()">+ Add account</button>
+        </div>
+        <div class="row-actions admin-only" style="margin-top:20px">
+          <button class="btn btn-primary" id="btn-save" onclick="saveHoldings()">Save changes</button>
+          <button class="btn btn-secondary" onclick="discardEdits()">Discard changes</button>
+          <span class="status" id="save-status"></span>
+        </div>
+      </div>
+
+      <div class="admin-only">
+        <h3 style="cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('setup-delete')">
+          <span id="section-arrow-setup-delete" style="display:inline-block;width:16px">▸</span>Delete all accounts
+        </h3>
+        <div id="section-body-setup-delete" class="hidden">
+          <div class="info-box danger">
+            Removes <strong>every</strong> account. An Excel backup of all accounts downloads first, and you'll be asked to
+            type DELETE. Prices and user sign-ins aren't affected. To restore, upload the backup file.
+          </div>
+          <button class="btn btn-danger" onclick="deleteAllAccounts()">Delete all accounts…</button>
+        </div>
       </div>
     </div>
 
@@ -552,6 +600,7 @@ async function onSignedIn(user) {
     isAdmin: profile.isAdmin === true || String(user.email || '').toLowerCase() === OWNER_EMAIL,
   };
   document.getElementById('admin-section').classList.toggle('hidden', !currentUser.isAdmin);
+  document.body.classList.toggle('is-admin', currentUser.isAdmin);   // shows .admin-only controls
   document.getElementById('hdr-user').textContent = currentUser.name;
   document.getElementById('logout-row').classList.remove('hidden');
   startApp();
@@ -605,7 +654,7 @@ function startApp() {
     });
     listeners.push(() => ref.off('value', cb));
   };
-  sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); });
+  sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); convertAccountsIfNeeded(); });
   sub('prices', v => { prices = v || {}; renderPortfolio(); });
   sub('priceStatus', v => { priceStatus = v; renderPortfolio(); });
 }
@@ -658,14 +707,6 @@ function matchOption(list, v) {
   const want = k(v);
   return want ? (list.find(c => k(c) === want) || null) : '';
 }
-function matchAssetClass(v) { return matchOption(ASSET_CLASSES, v); }
-function optionSelect(list, value, cls) {
-  const opts = ['<option value="">—</option>'].concat(list.map(c =>
-    `<option value="${escapeHtml(c)}"${c === value ? ' selected' : ''}>${escapeHtml(c)}</option>`));
-  return `<select class="${cls}" onchange="markDirty()">${opts.join('')}</select>`;
-}
-function assetClassSelect(value) { return optionSelect(ASSET_CLASSES, value, 'f-class'); }
-function ownerSelect(value) { return optionSelect(ACCOUNT_OWNERS, value, 'f-owner'); }
 
 // Value-weighted average of `field` over rows where both value and field are numbers.
 // Rows without the field are left out and the rest reweighted.
@@ -678,7 +719,13 @@ function weightedAvg(rows, field) {
 }
 
 function computePortfolio(assetMap, priceMap) {
-  const list = Object.entries(assetMap || {}).map(([id, a]) => ({ id, ...a }));
+  // Slides are unchanged for now: accounts with a ticker fill the priced (top) section and the rest
+  // the section below, which is exactly the old liquid / illiquid split for existing data. The
+  // Liquidity field isn't used here yet — that comes with the slide redesign.
+  const list = Object.entries(assetMap || {}).map(([id, a]) => {
+    const n = normalizeAccount(a);
+    return { id, ...n, kind: n.ticker ? 'liquid' : 'illiquid' };
+  });
   const byOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0) || String(a.name).localeCompare(String(b.name));
 
   const liquid = list.filter(a => a.kind === 'liquid').sort(byOrder).map(a => {
@@ -1085,132 +1132,272 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') exitPresent();
 });
 
-function exportCsv() {
-  const { liquid, illiquid, totals: t } = computePortfolio(assets, prices);
-  const n = x => typeof x === 'number' && isFinite(x) ? String(+x.toFixed(6)) : '';
-  const lines = [['Type', 'Asset class', 'Account owner', 'Fund / asset', 'Ticker', 'Units', 'Price', 'As of', 'Day chg', '5-yr total return (ann.)', 'YTD / assumed return', 'Value ($K)', '% of liquid', '% of all']];
-  liquid.forEach(r => lines.push(['Liquid', r.assetClass, r.owner, r.name, r.ticker, n(r.units), n(r.price), r.asOf || '', n(r.dayChg), n(r.tr5y), n(r.ytd), n(r.value), n(r.pctLiq), n(r.pctAll)]));
-  lines.push(['Liquid total', '', '', '', '', '', '', '', '', n(t.liq5y), n(t.liqYtd), n(t.liqValue), '1', n(t.liqPct)]);
-  illiquid.forEach(r => lines.push(['Illiquid', r.assetClass, r.owner, r.name, '', '', '', '', '', '', n(r.ret), n(r.value), '', n(r.pctAll)]));
-  lines.push(['All assets', '', '', '', '', '', '', '', '', '', n(t.allRet), n(t.allValue), '', '1']);
-  download(`portfolio-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(lines));
+/* ══════════════════════════════════════════════════════════════════════
+   SETUP TAB — the accounts database
+   One list of accounts. An account with a ticker is valued as units × price; one without uses
+   the value entered ($K) and its assumed return. Liquidity (Liquid / Illiquid) is its own field.
+   Only Admins can edit, upload or delete — the database rules enforce that; this page just hides
+   the controls. Everyone signed in can download.
+══════════════════════════════════════════════════════════════════════ */
+const BENEFICIARIES = ['Alison', 'Dan', 'Lauren', 'Jodie', 'Dan & Alison'];
+const CUSTODIANS = ['Fidelity', 'Vanguard', 'McKinsey', 'MIO', 'Maverick', 'Equity Trust', 'Makers', 'Section',
+  'Bettor', 'Royal Vet', 'VVP', 'Upright', 'Ally', 'Northgate', 'Chase', 'Discover'];
+const LIQUIDITY = ['Liquid', 'Illiquid'];
+// Default [Beneficiary, Beneficiary 2] for each Account owner.
+const BENEFICIARY_DEFAULTS = {
+  'WROS': ['Dan & Alison', ''], 'Dan': ['Dan', ''], 'Alison': ['Alison', ''],
+  'DS Family Trust': ['Alison', 'Lauren'], 'AS Family Trust': ['Dan', 'Lauren'],
+  'Lauren': ['Lauren', ''], 'Trust for Lauren': ['Lauren', ''], 'Trust for Jodie': ['Jodie', ''],
+};
+const PICK_FIELDS = ['assetClass', 'owner', 'beneficiary', 'beneficiary2', 'custodian'];
+
+function defaultLiquidity(ticker, assetClass) { return ticker || assetClass === 'Cash' ? 'Liquid' : 'Illiquid'; }
+
+// Fills a blank Beneficiary (and a blank Beneficiary 2) from the owner. Changes `a`; returns it.
+function applyBeneficiaryDefaults(a) {
+  const d = BENEFICIARY_DEFAULTS[a.owner];
+  if (d && !a.beneficiary) {
+    a.beneficiary = d[0];
+    if (!a.beneficiary2 && d[1]) a.beneficiary2 = d[1];
+  }
+  return a;
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   HOLDINGS TAB — direct editing
-══════════════════════════════════════════════════════════════════════ */
-function sortedAssets(kind) {
-  return Object.entries(assets).map(([id, a]) => ({ id, ...a })).filter(a => a.kind === kind)
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+// Drops empty optional fields, so nothing blank is written (the rules reject an empty ticker).
+function cleanAccount(a) {
+  const out = {};
+  Object.entries(a).forEach(([k, v]) => { if (v !== '' && v !== null && v !== undefined && k !== 'id') out[k] = v; });
+  return out;
 }
-function liquidRowHtml(a) {
-  return `<tr data-id="${escapeHtml(a.id || '')}">` +
-    `<td style="width:215px">${assetClassSelect(a.assetClass)}</td>` +
-    `<td style="width:175px">${ownerSelect(a.owner)}</td>` +
-    `<td style="width:110px"><input type="text" class="f-ticker" value="${escapeHtml(a.ticker || '')}" oninput="markDirty()" placeholder="VTSAX"></td>` +
-    `<td><input type="text" class="f-name" value="${escapeHtml(a.name || '')}" oninput="markDirty()" placeholder="(from price feed if blank)"></td>` +
-    `<td class="num" style="width:150px"><input type="number" step="any" min="0" class="f-units" value="${a.units ?? ''}" oninput="markDirty()"></td>` +
-    `<td style="width:60px;text-align:center"><input type="checkbox" class="f-active" ${a.active === false ? '' : 'checked'} onchange="markDirty()"></td>` +
-    `<td style="width:36px"><button class="rm" title="Remove" onclick="removeRow(this)">×</button></td></tr>`;
+
+// Any stored account — the old two-list shape (kind: 'liquid' | 'illiquid') or the new one — in the new shape.
+function normalizeAccount(a) {
+  a = a || {};
+  const ticker = normTicker(a.ticker);
+  const out = {
+    name: String(a.name || '').trim(),
+    ticker,
+    // Old data: the default rule (ticker or Cash → Liquid) matches the old split, except that
+    // cash, which had to be filed under "illiquid" before, now comes out Liquid.
+    liquidity: LIQUIDITY.includes(a.liquidity) ? a.liquidity : defaultLiquidity(ticker, a.assetClass),
+    costBasis: typeof a.costBasis === 'number' ? a.costBasis : 0,
+    active: a.active !== false,
+    order: typeof a.order === 'number' ? a.order : 0,
+  };
+  if (ticker) out.units = Number(a.units) || 0; else out.value = Number(a.value) || 0;
+  if (typeof a.assumedReturn === 'number') out.assumedReturn = a.assumedReturn;
+  PICK_FIELDS.forEach(f => { if (a[f]) out[f] = a[f]; });
+  return out;
 }
-function illiquidRowHtml(a) {
+
+function sortedAccounts() {
+  return Object.entries(assets).map(([id, a]) => ({ id, ...normalizeAccount(a) }))
+    .sort((a, b) => a.order - b.order);
+}
+function accountValueK(a) {
+  if (!a.ticker) return Number(a.value) || 0;
+  const p = prices[a.ticker];
+  return p && typeof p.price === 'number' ? (Number(a.units) || 0) * p.price / 1000 : null;
+}
+
+/* ── One-time conversion of the old two-list data ──
+   Runs the first time an Admin opens the app after this change. Until then every page reads the old
+   shape through normalizeAccount(), so nothing looks different in the meantime. */
+let converting = false, conversionWarned = false;
+async function convertAccountsIfNeeded() {
+  if (!currentUser || !currentUser.isAdmin || converting) return;
+  const old = Object.values(assets).filter(a => a && a.kind);
+  if (!old.length) return;
+  converting = true;
+  try {
+    const next = {};
+    Object.entries(assets).forEach(([id, a]) => { next[id] = cleanAccount(applyBeneficiaryDefaults(normalizeAccount(a))); });
+    await db.ref('household/assets').set(next);
+    await db.ref('household/uploads').push({
+      at: firebase.database.ServerValue.TIMESTAMP, by: currentUser.email, source: 'convert-to-accounts', changed: old.length,
+    });
+  } catch (e) {
+    if (!conversionWarned) {
+      conversionWarned = true;
+      alert('Could not convert the accounts to the new format: ' + e.message +
+            '\n\nPublish the updated database rules in Firebase (see SETUP.md), then reload this page.');
+    }
+  } finally {
+    converting = false;
+  }
+}
+
+/* ── Collapsible sections (GTIA style guide §10a, verbatim) ── */
+function toggleCollapsibleSection(key) {
+  const sectionEl = document.getElementById(`section-body-${key}`);
+  const arrowEl = document.getElementById(`section-arrow-${key}`);
+  if (!sectionEl) return;
+  const collapsed = sectionEl.classList.toggle('hidden');
+  if (arrowEl) arrowEl.textContent = collapsed ? '▸' : '▾';
+}
+
+/* ── Accounts table ── */
+const ACCOUNT_COLUMNS = ['Asset class', 'Account owner', 'Beneficiary', 'Beneficiary 2', 'Custodian', 'Liquidity',
+  'Ticker', 'Name', 'Units', 'Value ($K)', 'Cost basis ($K)', 'Assumed return (%)', 'Show', ''];
+
+function pick(list, value, cls, editable, onchange, blank = true) {
+  const opts = (blank ? ['<option value="">—</option>'] : []).concat(list.map(c =>
+    `<option value="${escapeHtml(c)}"${c === value ? ' selected' : ''}>${escapeHtml(c)}</option>`));
+  return `<select class="${cls}"${editable ? '' : ' disabled'} onchange="markDirty();${onchange || ''}">${opts.join('')}</select>`;
+}
+
+function accountRowHtml(a, editable) {
+  const dis = editable ? '' : ' disabled';
+  const hasT = !!a.ticker;
+  const valueK = accountValueK(a);
   const ret = typeof a.assumedReturn === 'number' ? +(a.assumedReturn * 100).toFixed(4) : '';
-  return `<tr data-id="${escapeHtml(a.id || '')}">` +
-    `<td style="width:215px">${assetClassSelect(a.assetClass)}</td>` +
-    `<td style="width:175px">${ownerSelect(a.owner)}</td>` +
-    `<td><input type="text" class="f-name" value="${escapeHtml(a.name || '')}" oninput="markDirty()" placeholder="Private equity"></td>` +
-    `<td class="num" style="width:160px"><input type="number" step="any" min="0" class="f-value" value="${a.value ?? ''}" oninput="markDirty()"></td>` +
-    `<td class="num" style="width:150px"><input type="number" step="any" class="f-ret" value="${ret}" oninput="markDirty()"></td>` +
-    `<td style="width:36px"><button class="rm" title="Remove" onclick="removeRow(this)">×</button></td></tr>`;
+  const num = (cls, v, extra = '') => `<input type="number" step="any" class="${cls}" value="${v ?? ''}"${extra} oninput="markDirty()">`;
+  // data-liq-touched: an existing account keeps its stored Liquidity; a new row follows the defaults
+  // (ticker or Cash → Liquid) until someone picks a Liquidity by hand.
+  return `<tr data-id="${escapeHtml(a.id || '')}" data-liq-touched="${a.id ? '1' : ''}">` +
+    `<td style="width:190px">${pick(ASSET_CLASSES, a.assetClass, 'f-class', editable, 'onClassChange(this)')}</td>` +
+    `<td style="width:165px">${pick(ACCOUNT_OWNERS, a.owner, 'f-owner', editable, 'onOwnerChange(this)')}</td>` +
+    `<td style="width:135px">${pick(BENEFICIARIES, a.beneficiary, 'f-ben', editable)}</td>` +
+    `<td style="width:135px">${pick(BENEFICIARIES, a.beneficiary2, 'f-ben2', editable)}</td>` +
+    `<td style="width:135px">${pick(CUSTODIANS, a.custodian, 'f-cust', editable)}</td>` +
+    `<td style="width:105px">${pick(LIQUIDITY, a.liquidity || defaultLiquidity(a.ticker, a.assetClass), 'f-liq', editable, 'this.closest(\'tr\').dataset.liqTouched=\'1\'', false)}</td>` +
+    `<td style="width:95px"><input type="text" class="f-ticker" value="${escapeHtml(a.ticker || '')}"${dis} oninput="markDirty();onTickerInput(this)" placeholder="—"></td>` +
+    `<td style="width:240px"><input type="text" class="f-name" value="${escapeHtml(a.name || '')}"${dis} oninput="markDirty()" placeholder="${hasT ? '(from price feed)' : 'Account name'}"></td>` +
+    `<td class="num" style="width:115px">${num('f-units', hasT ? a.units : '', editable && hasT ? '' : ' disabled')}</td>` +
+    `<td class="num" style="width:115px">${num('f-value', hasT ? (valueK === null ? '' : +valueK.toFixed(2)) : a.value, editable && !hasT ? '' : ' disabled')}</td>` +
+    `<td class="num" style="width:115px">${num('f-cost', a.costBasis ?? 0, editable ? ' min="0"' : ' disabled')}</td>` +
+    `<td class="num" style="width:100px">${num('f-ret', ret, editable ? '' : ' disabled')}</td>` +
+    `<td style="width:50px;text-align:center"><input type="checkbox" class="f-active" ${a.active === false ? '' : 'checked'}${dis} onchange="markDirty()"></td>` +
+    `<td style="width:34px">${editable ? '<button class="rm" title="Remove this account" onclick="removeRow(this)">×</button>' : ''}</td></tr>`;
 }
+
+function isAdminUser() { return !!(currentUser && currentUser.isAdmin); }
+
 function renderHoldings() {
   if (!currentUser) return;
-  document.getElementById('ed-liquid').innerHTML =
-    '<thead><tr><th>Asset class</th><th>Account owner</th><th>Ticker</th><th>Fund name</th><th style="text-align:right">Units</th><th style="text-align:center">Show</th><th></th></tr></thead><tbody>' +
-    sortedAssets('liquid').map(liquidRowHtml).join('') + '</tbody>';
-  document.getElementById('ed-illiquid').innerHTML =
-    '<thead><tr><th>Asset class</th><th>Account owner</th><th>Asset</th><th style="text-align:right">Value ($K)</th><th style="text-align:right">Assumed return (%)</th><th></th></tr></thead><tbody>' +
-    sortedAssets('illiquid').map(illiquidRowHtml).join('') + '</tbody>';
+  const editable = isAdminUser();
+  document.getElementById('setup-readonly-note').classList.toggle('hidden', editable);
+  const rows = sortedAccounts();
+  document.getElementById('ed-accounts').innerHTML =
+    '<thead><tr>' + ACCOUNT_COLUMNS.map((c, i) => `<th${i >= 8 && i <= 11 ? ' style="text-align:right"' : i === 12 ? ' style="text-align:center"' : ''}>${c}</th>`).join('') + '</tr></thead><tbody>' +
+    (rows.map(a => accountRowHtml(a, editable)).join('') ||
+      `<tr><td colspan="${ACCOUNT_COLUMNS.length}" class="muted" style="padding:12px">No accounts yet.${editable ? ' Click "+ Add account" or upload a file.' : ''}</td></tr>`) +
+    '</tbody>';
   holdingsDirty = false;
   document.getElementById('save-status').textContent = '';
 }
+
 function markDirty() { holdingsDirty = true; document.getElementById('save-status').textContent = 'Unsaved changes'; }
-function addRow(kind) {
-  const tb = document.querySelector(`#ed-${kind} tbody`);
-  tb.insertAdjacentHTML('beforeend', kind === 'liquid' ? liquidRowHtml({}) : illiquidRowHtml({}));
-  tb.lastElementChild.querySelector('input').focus();
+
+function setLiquidityDefault(tr) {
+  if (tr.dataset.liqTouched === '1') return;
+  tr.querySelector('.f-liq').value = defaultLiquidity(normTicker(tr.querySelector('.f-ticker').value), tr.querySelector('.f-class').value);
+}
+function onTickerInput(inp) {
+  const tr = inp.closest('tr');
+  const hasT = !!normTicker(inp.value);
+  tr.querySelector('.f-units').disabled = !hasT;
+  tr.querySelector('.f-value').disabled = hasT;
+  tr.querySelector('.f-name').placeholder = hasT ? '(from price feed)' : 'Account name';
+  setLiquidityDefault(tr);
+}
+function onClassChange(sel) { setLiquidityDefault(sel.closest('tr')); }
+function onOwnerChange(sel) {
+  const tr = sel.closest('tr');
+  const d = BENEFICIARY_DEFAULTS[sel.value];
+  const b1 = tr.querySelector('.f-ben'), b2 = tr.querySelector('.f-ben2');
+  if (d && !b1.value) { b1.value = d[0]; if (!b2.value && d[1]) b2.value = d[1]; }
+}
+
+function addRow() {
+  if (!isAdminUser()) return;
+  const tb = document.querySelector('#ed-accounts tbody');
+  if (tb.querySelector('td[colspan]')) tb.innerHTML = '';
+  tb.insertAdjacentHTML('beforeend', accountRowHtml({ liquidity: 'Illiquid', active: true, costBasis: 0 }, true));
+  tb.lastElementChild.querySelector('.f-class').focus();
   markDirty();
 }
 function removeRow(btn) { btn.closest('tr').remove(); markDirty(); }
 function discardEdits() { renderHoldings(); }
 
-// Reads the editor tables into { assets, errors }.
+// Reads the accounts table into { assets, errors }.
 function readEditor() {
   const out = {}, errors = [];
-  const seenT = new Set(), seenN = new Set();
-  document.querySelectorAll('#ed-liquid tbody tr').forEach((tr, i) => {
-    const ticker = normTicker(tr.querySelector('.f-ticker').value);
-    const name = tr.querySelector('.f-name').value.trim();
-    const unitsRaw = tr.querySelector('.f-units').value;
-    const units = Number(unitsRaw);
-    if (!ticker && !name && unitsRaw === '') return;          // blank row
-    if (!/^[A-Z0-9-]{1,12}$/.test(ticker)) errors.push(`Liquid row ${i + 1}: enter a valid ticker.`);
-    else if (seenT.has(ticker)) errors.push(`${ticker} is listed twice.`);
-    if (unitsRaw === '' || !isFinite(units) || units < 0) errors.push(`${ticker || 'Liquid row ' + (i + 1)}: units must be a number ≥ 0.`);
-    seenT.add(ticker);
-    const a = { kind: 'liquid', ticker, name, units, active: tr.querySelector('.f-active').checked, order: i };
-    const cls = tr.querySelector('.f-class').value;
-    if (cls) a.assetClass = cls;
-    const owner = tr.querySelector('.f-owner').value;
-    if (owner) a.owner = owner;
-    out[tr.dataset.id || newId()] = a;
-  });
-  document.querySelectorAll('#ed-illiquid tbody tr').forEach((tr, i) => {
-    const name = tr.querySelector('.f-name').value.trim();
-    const valueRaw = tr.querySelector('.f-value').value, retRaw = tr.querySelector('.f-ret').value;
-    if (!name && valueRaw === '' && retRaw === '') return;
-    const value = Number(valueRaw), ret = Number(retRaw);
-    if (!name) errors.push(`Illiquid row ${i + 1}: enter a name.`);
-    else if (seenN.has(name.toLowerCase())) errors.push(`"${name}" is listed twice.`);
-    if (valueRaw === '' || !isFinite(value) || value < 0) errors.push(`${name || 'Illiquid row ' + (i + 1)}: value must be a number ≥ 0.`);
-    if (retRaw !== '' && !isFinite(ret)) errors.push(`${name}: assumed return must be a number.`);
-    seenN.add(name.toLowerCase());
-    const a = { kind: 'illiquid', name, value, order: 1000 + i };
-    if (retRaw !== '') a.assumedReturn = ret / 100;
-    const cls = tr.querySelector('.f-class').value;
-    if (cls) a.assetClass = cls;
-    const owner = tr.querySelector('.f-owner').value;
-    if (owner) a.owner = owner;
-    out[tr.dataset.id || newId()] = a;
+  document.querySelectorAll('#ed-accounts tbody tr[data-id]').forEach((tr, i) => {
+    const q = c => tr.querySelector(c);
+    const ticker = normTicker(q('.f-ticker').value);
+    const name = q('.f-name').value.trim();
+    const unitsRaw = q('.f-units').value, valueRaw = q('.f-value').value, costRaw = q('.f-cost').value, retRaw = q('.f-ret').value;
+    const picks = { assetClass: q('.f-class').value, owner: q('.f-owner').value, beneficiary: q('.f-ben').value,
+                    beneficiary2: q('.f-ben2').value, custodian: q('.f-cust').value };
+    const blank = !ticker && !name && (unitsRaw === '' || q('.f-units').disabled) && valueRaw === '' &&
+                  (costRaw === '' || Number(costRaw) === 0) && retRaw === '' && !Object.values(picks).some(Boolean);
+    if (blank) return;
+    const label = ticker || name || `Row ${i + 1}`;
+    const a = { name, ticker, liquidity: q('.f-liq').value, active: q('.f-active').checked, order: i, ...picks };
+    if (ticker && !/^[A-Z0-9-]{1,12}$/.test(ticker)) errors.push(`${label}: a ticker can only have letters, numbers and "-" (up to 12).`);
+    if (!ticker && !name) errors.push(`Row ${i + 1}: enter a ticker or a name.`);
+    if (ticker) {
+      const units = Number(unitsRaw);
+      if (unitsRaw === '' || !isFinite(units) || units < 0) errors.push(`${label}: units must be a number ≥ 0.`);
+      a.units = units;
+    } else {
+      const value = Number(valueRaw);
+      if (valueRaw === '' || !isFinite(value) || value < 0) errors.push(`${label}: value must be a number ≥ 0.`);
+      a.value = value;
+    }
+    const cost = costRaw === '' ? 0 : Number(costRaw);
+    if (!isFinite(cost) || cost < 0) errors.push(`${label}: cost basis must be a number ≥ 0.`);
+    a.costBasis = cost;
+    if (retRaw !== '') {
+      const ret = Number(retRaw);
+      if (!isFinite(ret)) errors.push(`${label}: assumed return must be a number.`);
+      a.assumedReturn = ret / 100;
+    }
+    out[tr.dataset.id || newId()] = cleanAccount(a);
   });
   return { assets: out, errors };
 }
 function newId() { return db.ref('household/assets').push().key; }
 
 async function saveHoldings() {
+  if (!isAdminUser()) return;
   const { assets: next, errors } = readEditor();
   if (errors.length) { alert('Please fix these first:\n\n' + errors.join('\n')); return; }
   const btn = document.getElementById('btn-save');
   btn.disabled = true;
   try {
-    const before = new Set(Object.values(assets).filter(a => a.kind === 'liquid').map(a => normTicker(a.ticker)));
+    const before = new Set(sortedAccounts().map(a => a.ticker).filter(Boolean));
     await db.ref('household/assets').set(next);
     await db.ref('household/uploads').push({ at: firebase.database.ServerValue.TIMESTAMP, by: currentUser.email, source: 'editor' });
     holdingsDirty = false;
     renderHoldings();
     document.getElementById('save-status').textContent = 'Saved.';
-    const added = Object.values(next).filter(a => a.kind === 'liquid' && !before.has(a.ticker));
-    if (added.length) refreshPrices(true);   // fetch prices for new tickers right away
+    if (Object.values(next).some(a => a.ticker && !before.has(a.ticker))) refreshPrices(true);   // price new tickers now
   } catch (e) {
-    alert('Could not save holdings: ' + e.message);
+    alert('Could not save the accounts: ' + e.message);
   } finally {
     btn.disabled = false;
   }
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   HOLDINGS TAB — file upload with preview
-══════════════════════════════════════════════════════════════════════ */
+/* ── Excel downloads (everyone) ── */
+// File columns, in order. `key` is the account field; current_value_k is information only.
+const FILE_COLUMNS = [
+  { col: 'asset_class', key: 'assetClass', list: () => ASSET_CLASSES, wch: 20 },
+  { col: 'account_owner', key: 'owner', list: () => ACCOUNT_OWNERS, wch: 17 },
+  { col: 'beneficiary', key: 'beneficiary', list: () => BENEFICIARIES, wch: 14 },
+  { col: 'beneficiary_2', key: 'beneficiary2', list: () => BENEFICIARIES, wch: 14 },
+  { col: 'custodian', key: 'custodian', list: () => CUSTODIANS, wch: 13 },
+  { col: 'liquidity', key: 'liquidity', list: () => LIQUIDITY, wch: 10 },
+  { col: 'ticker', key: 'ticker', wch: 9 },
+  { col: 'name', key: 'name', wch: 40 },
+  { col: 'units', key: 'units', wch: 12 },
+  { col: 'value_k', key: 'value', wch: 11 },
+  { col: 'cost_basis_k', key: 'costBasis', wch: 13 },
+  { col: 'assumed_return_pct', key: 'assumedReturn', wch: 19 },
+];
+
 function toCsv(rows) {
   return rows.map(r => r.map(v => {
     const s = String(v ?? '');
@@ -1224,35 +1411,97 @@ function download(filename, text) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-async function downloadTemplate() {
-  const rows = [['type', 'asset_class', 'account_owner', 'ticker', 'name', 'units', 'value_k', 'assumed_return_pct']];
-  const liq = sortedAssets('liquid'), ill = sortedAssets('illiquid');
-  liq.forEach(a => rows.push(['liquid', a.assetClass || '', a.owner || '', a.ticker, a.name || '', a.units ?? '', '', '']));
-  ill.forEach(a => rows.push(['illiquid', a.assetClass || '', a.owner || '', '', a.name, '', a.value ?? '', typeof a.assumedReturn === 'number' ? +(a.assumedReturn * 100).toFixed(4) : '']));
-  if (!liq.length && !ill.length) {
-    rows.push(['liquid', 'Equity US Broad', 'WROS', 'VTSAX', 'Vanguard Total Stock Market Index Fund Admiral', 100, '', '']);
-    rows.push(['illiquid', 'Private equity', 'Dan', '', 'Private equity', '', 250, 11]);
-  }
-  try {
-    if (!window.XLSX) await loadScript(SHEETJS_URL);
-  } catch (e) {
-    alert('Could not load the Excel writer, so the template downloads as CSV instead (Excel opens it too).');
-    download('holdings-template.csv', toCsv(rows));
-    return;
-  }
-  const ws = XLSX.utils.aoa_to_sheet(rows.map(r => r.map(v => v === '' ? null : v)));
-  ws['!cols'] = [{ wch: 10 }, { wch: 22 }, { wch: 18 }, { wch: 10 }, { wch: 48 }, { wch: 14 }, { wch: 12 }, { wch: 20 }];
-  // A second sheet lists the allowed asset classes and account owners for reference (uploads read the first sheet only).
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Holdings');
-  const n = Math.max(ASSET_CLASSES.length, ACCOUNT_OWNERS.length);
-  const ref = [['asset_class', 'account_owner'], ...Array.from({ length: n }, (_, i) => [ASSET_CLASSES[i] || null, ACCOUNT_OWNERS[i] || null])];
-  const refWs = XLSX.utils.aoa_to_sheet(ref);
-  refWs["!cols"] = [{ wch: 22 }, { wch: 18 }];
-  XLSX.utils.book_append_sheet(wb, refWs, 'Allowed values');
-  XLSX.writeFile(wb, 'holdings-template.xlsx');
+function loadScript(src) {
+  return new Promise((ok, fail) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = ok; s.onerror = () => fail(new Error('Could not load the Excel reader'));
+    document.head.appendChild(s);
+  });
 }
 
+function fileRow(a, withExtras) {
+  const cells = FILE_COLUMNS.map(c => {
+    const v = a[c.key];
+    if (c.key === 'assumedReturn') return typeof v === 'number' ? +(v * 100).toFixed(4) : null;
+    if (c.key === 'units') return a.ticker ? v ?? null : null;
+    if (c.key === 'value') return a.ticker ? null : v ?? null;
+    return v === '' || v === undefined ? null : v;
+  });
+  if (withExtras) {
+    const cv = accountValueK(a);
+    cells.push(cv === null ? null : +cv.toFixed(2), a.id);
+  }
+  return cells;
+}
+
+async function writeWorkbook(filename, sheetName, header, rows, widths) {
+  if (!window.XLSX) await loadScript(SHEETJS_URL);
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  ws['!cols'] = widths.map(w => ({ wch: w }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  // Reference sheet of every pick list (uploads read the first sheet only).
+  const lists = FILE_COLUMNS.filter(c => c.list && c.col !== 'beneficiary_2');
+  const n = Math.max(...lists.map(c => c.list().length));
+  const ref = XLSX.utils.aoa_to_sheet([lists.map(c => c.col),
+    ...Array.from({ length: n }, (_, i) => lists.map(c => c.list()[i] ?? null))]);
+  ref['!cols'] = lists.map(c => ({ wch: c.wch + 2 }));
+  XLSX.utils.book_append_sheet(wb, ref, 'Allowed values');
+  XLSX.writeFile(wb, filename);
+}
+
+async function downloadTemplate() {
+  const header = FILE_COLUMNS.map(c => c.col);
+  const examples = [
+    { assetClass: 'Equity US Broad', owner: 'WROS', beneficiary: 'Dan & Alison', custodian: 'Vanguard', liquidity: 'Liquid',
+      ticker: 'VTSAX', name: 'Vanguard Total Stock Market Index Fund Admiral', units: 100, costBasis: 12.5 },
+    { assetClass: 'Private equity', owner: 'DS Family Trust', beneficiary: 'Alison', beneficiary2: 'Lauren', liquidity: 'Illiquid',
+      name: 'Example private equity fund', value: 250, costBasis: 200, assumedReturn: 0.11 },
+  ];
+  try {
+    await writeWorkbook('accounts-template.xlsx', 'Accounts', header, examples.map(a => fileRow(a, false)), FILE_COLUMNS.map(c => c.wch));
+  } catch (e) {
+    alert('Could not create the Excel file: ' + e.message);
+  }
+}
+
+async function downloadAccounts(filename) {
+  const header = FILE_COLUMNS.map(c => c.col).concat(['current_value_k', 'id']);
+  const rows = sortedAccounts().map(a => fileRow(a, true));
+  const name = filename || `accounts-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  try {
+    await writeWorkbook(name, 'Accounts', header, rows, FILE_COLUMNS.map(c => c.wch).concat([15, 22]));
+  } catch (e) {
+    if (filename) throw e;   // the Delete-all backup needs to know it failed
+    alert('Could not create the Excel file: ' + e.message);
+  }
+}
+
+/* ── Delete all accounts (Admins) ── */
+async function deleteAllAccounts() {
+  if (!isAdminUser()) return;
+  const n = Object.keys(assets).length;
+  if (!n) { alert('There are no accounts to delete.'); return; }
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  try {
+    await downloadAccounts(`accounts-backup-${stamp}.xlsx`);
+  } catch (e) {
+    if (!confirm(`The backup file could not be created (${e.message}).\n\nDelete all accounts anyway, with no backup?`)) return;
+  }
+  const typed = prompt(`This deletes all ${n} accounts. A backup file has been downloaded — check your Downloads folder.\n\nType DELETE to confirm.`);
+  if (typed !== 'DELETE') { alert('Nothing was deleted.'); return; }
+  try {
+    await db.ref('household/assets').remove();
+    await db.ref('household/uploads').push({ at: firebase.database.ServerValue.TIMESTAMP, by: currentUser.email, source: 'delete-all', changed: n });
+    holdingsDirty = false;
+    renderHoldings();
+    alert(`Deleted all ${n} accounts. To restore them, upload the backup file.`);
+  } catch (e) {
+    alert('Could not delete the accounts: ' + e.message);
+  }
+}
+
+/* ── Upload with preview (Admins) ── */
 // Minimal RFC-4180 CSV parser (quoted fields, embedded commas/quotes/newlines).
 function parseCsv(text) {
   const rows = []; let row = [], field = '', q = false;
@@ -1272,13 +1521,6 @@ function parseCsv(text) {
   if (field !== '' || row.length) { row.push(field); rows.push(row); }
   return rows.filter(r => r.some(v => String(v).trim() !== ''));
 }
-function loadScript(src) {
-  return new Promise((ok, fail) => {
-    const s = document.createElement('script');
-    s.src = src; s.onload = ok; s.onerror = () => fail(new Error('Could not load the Excel reader'));
-    document.head.appendChild(s);
-  });
-}
 async function readUploadRows(file) {
   if (/\.csv$/i.test(file.name)) return parseCsv(await file.text());
   if (!window.XLSX) await loadScript(SHEETJS_URL);
@@ -1294,77 +1536,96 @@ function num(v) {
   return isFinite(n) ? (neg ? -n : n) : NaN;
 }
 
-// Turns raw rows (first row = headers) into a list of proposed changes against current assets.
+const FIELD_LABELS = { assetClass: 'class', owner: 'owner', beneficiary: 'beneficiary', beneficiary2: 'beneficiary 2',
+  custodian: 'custodian', liquidity: 'liquidity', ticker: 'ticker', name: 'name', units: 'units', value: 'value $K',
+  costBasis: 'cost basis $K', assumedReturn: 'assumed return', active: 'show' };
+function fieldText(k, v) {
+  if (v === undefined || v === null || v === '') return '—';
+  if (v === 0) return '0';
+  if (k === 'assumedReturn') return fmtPct(v);
+  if (k === 'units') return fmtNum(v, 3);
+  if (k === 'value' || k === 'costBasis') return fmtNum(v, 1);
+  return String(v);
+}
+
+// Turns raw rows (first row = headers) into proposed changes against the current accounts.
 function buildUploadPlan(rawRows, current) {
   if (!rawRows.length) return { items: [], errors: ['The file is empty.'] };
   const hdr = rawRows[0].map(h => String(h).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
   const col = (...names) => names.map(n => hdr.indexOf(n)).find(i => i >= 0) ?? -1;
-  const cType = col('type', 'kind'), cTicker = col('ticker', 'symbol'), cName = col('name', 'fund_name', 'asset');
-  const cUnits = col('units', 'shares', 'quantity'), cValue = col('value_k', 'value', 'current_value');
-  const cRet = col('assumed_return_pct', 'assumed_return', 'return_pct', 'return');
-  const cClass = col('asset_class', 'assetclass', 'class');
-  const cOwner = col('account_owner', 'accountowner', 'owner');
+  const C = {
+    id: col('id'), ticker: col('ticker', 'symbol'), name: col('name', 'fund_name', 'asset', 'account'),
+    units: col('units', 'shares', 'quantity'), value: col('value_k', 'value', 'current_value'),
+    costBasis: col('cost_basis_k', 'cost_basis', 'cost'), ret: col('assumed_return_pct', 'assumed_return', 'return_pct', 'return'),
+    assetClass: col('asset_class', 'assetclass', 'class'), owner: col('account_owner', 'accountowner', 'owner'),
+    beneficiary: col('beneficiary', 'beneficiary_1', 'beneficiary1'), beneficiary2: col('beneficiary_2', 'beneficiary2'),
+    custodian: col('custodian'), liquidity: col('liquidity'),
+  };
   const errors = [];
-  if (cTicker < 0 && cName < 0) errors.push('No "ticker" or "name" column found — use the template headers.');
+  if (C.ticker < 0 && C.name < 0 && C.id < 0) errors.push('No "ticker", "name" or "id" column found — use the template headers.');
 
-  const curList = Object.entries(current || {}).map(([id, a]) => ({ id, ...a }));
-  const byTicker = new Map(curList.filter(a => a.kind === 'liquid').map(a => [normTicker(a.ticker), a]));
-  const byName = new Map(curList.filter(a => a.kind === 'illiquid').map(a => [String(a.name).trim().toLowerCase(), a]));
-  const items = [], seen = new Set();
+  const cur = {};
+  Object.entries(current || {}).forEach(([id, a]) => { cur[id] = { id, ...normalizeAccount(a) }; });
+  const lists = { assetClass: ASSET_CLASSES, owner: ACCOUNT_OWNERS, beneficiary: BENEFICIARIES, beneficiary2: BENEFICIARIES,
+                  custodian: CUSTODIANS, liquidity: LIQUIDITY };
+  const items = [], seenIds = new Set();
 
   rawRows.slice(1).forEach((r, i) => {
     const line = i + 2;
     const get = c => c >= 0 ? r[c] : '';
-    const ticker = normTicker(get(cTicker));
-    const name = String(get(cName) ?? '').trim();
-    let type = String(get(cType) ?? '').trim().toLowerCase();
-    if (!type) type = ticker ? 'liquid' : 'illiquid';
-    if (type !== 'liquid' && type !== 'illiquid') { items.push({ line, status: 'error', label: ticker || name, msg: `Type must be "liquid" or "illiquid".` }); return; }
-    // Asset class: blank keeps the current one; anything else must be one of ASSET_CLASSES.
-    const clsRaw = String(get(cClass) ?? '').trim();
-    const cls = matchAssetClass(clsRaw);
-    if (cls === null) { items.push({ line, status: 'error', label: ticker || name, msg: `Unknown asset class "${clsRaw}". Use one of: ${ASSET_CLASSES.join(', ')}.` }); return; }
-    // Account owner: same rule — blank keeps the current one; otherwise one of ACCOUNT_OWNERS.
-    const ownerRaw = String(get(cOwner) ?? '').trim();
-    const owner = matchOption(ACCOUNT_OWNERS, ownerRaw);
-    if (owner === null) { items.push({ line, status: 'error', label: ticker || name, msg: `Unknown account owner "${ownerRaw}". Use one of: ${ACCOUNT_OWNERS.join(', ')}.` }); return; }
-    const clsFor = cur => cls || (cur && cur.assetClass) || '';
-    const ownerFor = cur => owner || (cur && cur.owner) || '';
-    const tagsChanged = (cur, c, o) => cur && (c !== (cur.assetClass || '') || o !== (cur.owner || ''));
-    const clsTxt = (c, o) => [c, o].filter(Boolean).map(s => ` · ${s}`).join('');
+    const str = c => String(get(c) ?? '').trim();
+    const err = (label, msg) => items.push({ line, status: 'error', label, msg });
+    const id = str(C.id);
+    const old = id ? cur[id] : null;
+    const label0 = normTicker(str(C.ticker)) || str(C.name) || (old && (old.ticker || old.name)) || id;
+    if (id && !old) return err(label0, 'No account has this id (it may have been deleted). Clear the id cell to add it as a new account.');
+    if (id && seenIds.has(id)) return err(label0, 'This id is listed twice in the file.');
+    if (id) seenIds.add(id);
 
-    if (type === 'liquid') {
-      const units = num(get(cUnits));
-      if (!/^[A-Z0-9-]{1,12}$/.test(ticker)) { items.push({ line, status: 'error', label: ticker || name, msg: 'Missing or invalid ticker.' }); return; }
-      if (units === null || Number.isNaN(units) || units < 0) { items.push({ line, status: 'error', label: ticker, msg: 'Units must be a number ≥ 0.' }); return; }
-      if (seen.has('L:' + ticker)) { items.push({ line, status: 'error', label: ticker, msg: 'Listed twice in the file.' }); return; }
-      seen.add('L:' + ticker);
-      const cur = byTicker.get(ticker);
-      const nameChanged = name && cur && name !== (cur.name || '');
-      const assetClass = clsFor(cur), acctOwner = ownerFor(cur);
-      const classChanged = tagsChanged(cur, assetClass, acctOwner);
-      const status = !cur ? 'new' : (Math.abs((Number(cur.units) || 0) - units) > 1e-9 || nameChanged || classChanged) ? 'changed' : 'same';
-      items.push({ line, status, kind: 'liquid', label: ticker, id: cur && cur.id, ticker, name: name || (cur && cur.name) || '', assetClass, owner: acctOwner,
-        oldText: cur ? `${fmtNum(Number(cur.units) || 0, 3)} units${clsTxt(cur.assetClass, cur.owner)}` : '', newText: `${fmtNum(units, 3)} units${clsTxt(assetClass, acctOwner)}`, units });
-    } else {
-      const value = num(get(cValue));
-      const retPct = num(get(cRet));
-      if (!name) { items.push({ line, status: 'error', label: '', msg: 'Illiquid rows need a name.' }); return; }
-      if (value === null || Number.isNaN(value) || value < 0) { items.push({ line, status: 'error', label: name, msg: 'value_k must be a number ≥ 0.' }); return; }
-      if (Number.isNaN(retPct)) { items.push({ line, status: 'error', label: name, msg: 'assumed_return_pct must be a number (e.g. 6 for 6%).' }); return; }
-      const key = name.toLowerCase();
-      if (seen.has('I:' + key)) { items.push({ line, status: 'error', label: name, msg: 'Listed twice in the file.' }); return; }
-      seen.add('I:' + key);
-      const cur = byName.get(key);
-      const ret = retPct === null ? (cur && typeof cur.assumedReturn === 'number' ? cur.assumedReturn : null) : retPct / 100;
-      const curRet = cur && typeof cur.assumedReturn === 'number' ? cur.assumedReturn : null;
-      const assetClass = clsFor(cur), acctOwner = ownerFor(cur);
-      const classChanged = tagsChanged(cur, assetClass, acctOwner);
-      const status = !cur ? 'new' : (Math.abs((Number(cur.value) || 0) - value) > 1e-9 || Math.abs((curRet ?? 0) - (ret ?? 0)) > 1e-9 || classChanged) ? 'changed' : 'same';
-      const txt = (v, r, c, o) => `$${fmtNum(v, 1)}K` + (r === null ? '' : ` @ ${fmtPct(r)}`) + clsTxt(c, o);
-      items.push({ line, status, kind: 'illiquid', label: name, id: cur && cur.id, name, assetClass, owner: acctOwner,
-        oldText: cur ? txt(Number(cur.value) || 0, curRet, cur.assetClass, cur.owner) : '', newText: txt(value, ret, assetClass, acctOwner), value, assumedReturn: ret });
+    const next = old ? { ...old } : { active: true, costBasis: 0 };
+    delete next.id;
+    // Pick lists: blank keeps the current value; anything else must be on the list.
+    for (const [f, list] of Object.entries(lists)) {
+      const raw = str(C[f]);
+      const m = matchOption(list, raw);
+      if (m === null) return err(label0, `Unknown ${FIELD_LABELS[f]} "${raw}". Use one of: ${list.join(', ')}.`);
+      if (m) next[f] = m;
     }
+    const tickerRaw = str(C.ticker);
+    if (tickerRaw) next.ticker = normTicker(tickerRaw);
+    if (next.ticker && !/^[A-Z0-9-]{1,12}$/.test(next.ticker)) return err(label0, 'A ticker can only have letters, numbers and "-" (up to 12).');
+    if (str(C.name)) next.name = str(C.name);
+    const label = next.ticker || next.name || label0;
+
+    if (next.ticker) {
+      const u = num(get(C.units));
+      if (Number.isNaN(u) || (u !== null && u < 0)) return err(label, 'units must be a number ≥ 0.');
+      if (u !== null) next.units = u;
+      if (typeof next.units !== 'number') return err(label, 'An account with a ticker needs units (number of shares).');
+      delete next.value;
+    } else {
+      if (!next.name) return err(label, 'An account without a ticker needs a name.');
+      const v = num(get(C.value));
+      if (Number.isNaN(v) || (v !== null && v < 0)) return err(label, 'value_k must be a number ≥ 0.');
+      if (v !== null) next.value = v;
+      if (typeof next.value !== 'number') return err(label, 'An account without a ticker needs value_k ($ thousands).');
+      delete next.units;
+    }
+    const cb = num(get(C.costBasis));
+    if (Number.isNaN(cb) || (cb !== null && cb < 0)) return err(label, 'cost_basis_k must be a number ≥ 0.');
+    if (cb !== null) next.costBasis = cb;
+    const rp = num(get(C.ret));
+    if (Number.isNaN(rp)) return err(label, 'assumed_return_pct must be a number (e.g. 6 for 6%).');
+    if (rp !== null) next.assumedReturn = rp / 100;
+    if (!str(C.liquidity) && !old) next.liquidity = defaultLiquidity(next.ticker, next.assetClass);
+    applyBeneficiaryDefaults(next);
+
+    const fields = Object.keys(FIELD_LABELS);
+    const changes = old
+      ? fields.filter(k => fieldText(k, next[k]) !== fieldText(k, old[k])).map(k => `${FIELD_LABELS[k]}: ${fieldText(k, old[k])} → ${fieldText(k, next[k])}`)
+      : fields.filter(k => k !== 'active' && next[k] !== undefined && next[k] !== '').map(k => `${FIELD_LABELS[k]}: ${fieldText(k, next[k])}`);
+    items.push({ line, status: !old ? 'new' : changes.length ? 'changed' : 'same', id: old && old.id, label, record: next,
+                 changeText: changes.join(' · ') });
   });
   return { items, errors };
 }
@@ -1392,15 +1653,14 @@ function renderUploadPreview() {
   const label = { new: 'New', changed: 'Changed', same: 'No change', error: 'Error' };
   let h = '';
   if (p.errors.length) h += `<div class="info-box danger" style="margin-top:12px">${p.errors.map(escapeHtml).join('<br>')}</div>`;
-  h += `<table class="preview"><thead><tr><th>Row</th><th>Type</th><th>Ticker / name</th><th>Current</th><th>New</th><th>Status</th></tr></thead><tbody>` +
-    p.items.map(i => `<tr class="st-${i.status}"><td>${i.line}</td><td>${escapeHtml(i.kind || '')}</td><td>${escapeHtml(i.label)}</td>` +
-      `<td>${escapeHtml(i.oldText || '')}</td><td>${escapeHtml(i.newText || '')}</td>` +
-      `<td>${i.status === 'error' ? escapeHtml(i.msg) : label[i.status]}</td></tr>`).join('') + '</tbody></table>';
+  h += `<table class="preview"><thead><tr><th>Row</th><th>Account</th><th>Status</th><th>Details</th></tr></thead><tbody>` +
+    p.items.map(i => `<tr class="st-${i.status}"><td>${i.line}</td><td>${escapeHtml(i.label)}</td><td>${label[i.status]}</td>` +
+      `<td>${escapeHtml(i.status === 'error' ? i.msg : i.changeText || '')}</td></tr>`).join('') + '</tbody></table>';
   h += `<div class="row-actions">` +
     `<button class="btn btn-primary btn-sm" onclick="confirmUpload()" ${bad.length || p.errors.length || !changes.length ? 'disabled' : ''}>` +
     `Save ${changes.length} change${changes.length === 1 ? '' : 's'}</button>` +
     `<button class="btn btn-secondary btn-sm" onclick="cancelUpload()">Cancel</button>` +
-    `<span class="status">${bad.length ? `Fix the ${bad.length} error row(s) in the file and upload it again.` : !changes.length ? 'Nothing to change.' : 'Holdings not in the file stay as they are.'}</span></div>`;
+    `<span class="status">${bad.length ? `Fix the ${bad.length} error row(s) in the file and upload it again.` : !changes.length ? 'Nothing to change.' : 'Accounts not in the file stay as they are.'}</span></div>`;
   box.innerHTML = h;
 }
 function cancelUpload() {
@@ -1410,37 +1670,25 @@ function cancelUpload() {
 }
 async function confirmUpload() {
   const p = pendingUpload;
-  if (!p) return;
-  if (holdingsDirty && !confirm('You have unsaved edits in the tables below. Saving the upload will discard them. Continue?')) return;
+  if (!p || !isAdminUser()) return;
+  if (holdingsDirty && !confirm('You have unsaved edits in the Accounts table. Saving the upload will discard them. Continue?')) return;
   const changes = p.items.filter(i => i.status === 'new' || i.status === 'changed');
-  const maxOrder = kind => Math.max(kind === 'liquid' ? -1 : 999, ...Object.values(assets).filter(a => a.kind === kind).map(a => a.order ?? 0));
-  let nextL = maxOrder('liquid') + 1, nextI = maxOrder('illiquid') + 1;
+  let nextOrder = Math.max(-1, ...sortedAccounts().map(a => a.order)) + 1;
   const updates = {};
   changes.forEach(i => {
     const id = i.id || newId();
-    const base = assets[id] || {};
-    let a;
-    if (i.kind === 'liquid') {
-      a = { ...base, kind: 'liquid', ticker: i.ticker, name: i.name, units: i.units, active: base.active !== false, order: base.order ?? nextL++ };
-    } else {
-      a = { ...base, kind: 'illiquid', name: i.name, value: i.value, order: base.order ?? nextI++ };
-      if (i.assumedReturn === null) delete a.assumedReturn; else a.assumedReturn = i.assumedReturn;
-    }
-    if (i.assetClass) a.assetClass = i.assetClass; else delete a.assetClass;
-    if (i.owner) a.owner = i.owner; else delete a.owner;
-    updates[id] = a;
+    updates[id] = cleanAccount({ ...i.record, order: i.id ? i.record.order : nextOrder++ });
   });
   try {
+    const before = new Set(sortedAccounts().map(a => a.ticker).filter(Boolean));
     await db.ref('household/assets').update(updates);
     await db.ref('household/uploads').push({
-      at: firebase.database.ServerValue.TIMESTAMP, by: currentUser.email, source: 'file', filename: p.filename,
-      changed: changes.length,
+      at: firebase.database.ServerValue.TIMESTAMP, by: currentUser.email, source: 'file', filename: p.filename, changed: changes.length,
     });
-    const newTickers = changes.some(i => i.kind === 'liquid' && i.status === 'new');
     cancelUpload();
     renderHoldings();
     alert(`Saved ${changes.length} change(s).`);
-    if (newTickers) refreshPrices(true);
+    if (Object.values(updates).some(a => a.ticker && !before.has(a.ticker))) refreshPrices(true);
   } catch (e) {
     alert('Could not save the upload: ' + e.message);
   }
@@ -1573,7 +1821,7 @@ async function addAccount() {
     document.getElementById('new-admin').checked = false;
     renderPwRulesFor('new-pw', 'new-pw2', 'new-pw-rules');
     await loadAdminUsers();
-    alert(`Added ${name}. Share their password with them directly; they can change it on the Account tab.`);
+    alert(`Added ${name}. Share their password with them directly; they can change it on the User Admin tab.`);
   } catch (e) {
     setMsg('new-err', 'Could not add the account: ' + e.message);
   } finally {
