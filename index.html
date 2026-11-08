@@ -378,7 +378,7 @@
             </p>
           </div>
           <div class="slide hidden" id="slide-owners">
-            <div id="own-controls"></div>
+            <div class="filter-controls"></div>
             <div class="pf-group-btns">
               <button class="btn btn-secondary btn-sm" onclick="setAllOwnerGroups(true)">Expand all</button>
               <button class="btn btn-secondary btn-sm" onclick="setAllOwnerGroups(false)">Collapse all</button>
@@ -394,12 +394,15 @@
           </div>
 
           <div class="slide hidden" id="slide-alloc">
+            <div class="filter-controls"></div>
             <div class="tbl-wrap"><table class="alloc" id="alloc-table"></table></div>
             <p class="desc" style="margin-top:14px">
               Returns are value-weighted averages over liquid and illiquid accounts together. Italic returns come only from
               illiquid assets' assumed annual returns: pro-rated for the part of the year gone by in the YTD column, in full in
               the 5-year column. Funds without 5 years of history are left out of the 5-year average. Holdings with no asset
-              class set are grouped under "Unclassified" — set the class on the Setup tab.
+              class set are grouped under "Unclassified" — set the class on the Setup tab. The filters are shared with slide 2:
+              values are the selected beneficiaries' shares, and "% of total assets" is a share of everything the selected account
+              owners hold, so the Total can be under 100%.
             </p>
           </div>
         </div>
@@ -1134,12 +1137,19 @@ const EQUITY_CLASSES = ASSET_CLASSES.filter(c => c.startsWith('Equity'));
 // whether each return comes only from illiquid assumed returns. Liquid funds contribute their
 // YTD / 5-year returns; illiquid assets contribute their assumed annual return, pro-rated to date
 // for YTD (as on slide 1) and in full for 5-year.
+// The slide 2 filters (shared) apply: only selected owners and asset classes, each account's value
+// scaled to the selected beneficiaries' share, and % of total assets is a share of everything the
+// selected owners hold (as on slide 2).
 function allocationRows(pf, keyOf, order) {
-  const allValue = pf.totals.allValue;
+  const ownerOk = r => isSelected('owner', r.owner || NO_VALUE);
+  const allValue = pf.liquid.concat(pf.illiquid).filter(ownerOk).reduce((s, r) => s + (r.value || 0), 0);
+  const frac = r => Object.entries(beneficiaryShares(r)).reduce((s, [p, w]) => s + (isSelected('ben', p) ? w : 0), 0);
   const items = pf.liquid.filter(r => typeof r.value === 'number')
-    .map(r => ({ key: keyOf(r.assetClass), value: r.value, ytd: r.ytd, tr5y: r.tr5y, assumed: false }))
-    .concat(pf.illiquid.map(r => ({ key: keyOf(r.assetClass), value: r.value, ytd: r.ytd, tr5y: r.ret, assumed: true })))
-    .filter(i => i.key !== null);
+    .map(r => ({ r, key: keyOf(r.assetClass), ytd: r.ytd, tr5y: r.tr5y, assumed: false }))
+    .concat(pf.illiquid.map(r => ({ r, key: keyOf(r.assetClass), ytd: r.ytd, tr5y: r.ret, assumed: true })))
+    .filter(i => i.key !== null && ownerOk(i.r) && isSelected('cls', i.r.assetClass || UNCLASSIFIED))
+    .map(i => ({ ...i, value: i.r.value * frac(i.r) }))
+    .filter(i => Math.abs(i.value) > 1e-9);
   const summarize = (label, list) => {
     const value = list.reduce((s, i) => s + i.value, 0);
     const onlyAssumed = f => {
@@ -1360,12 +1370,12 @@ function toggleShortcut(dim, i) {
   cur = shortcutOn(dim, sc) ? cur.filter(v => !sc.values.includes(v)) : [...new Set(cur.concat(sc.values))];
   holdFilters[dim] = cur.length ? cur : null;
   saveHoldFilters();
-  renderOwnerSlide();
+  renderFilteredSlides();
 }
 function setFilterAll(dim, on) {
   holdFilters[dim] = on ? null : [];
   saveHoldFilters();
-  renderOwnerSlide();
+  renderFilteredSlides();
 }
 function setFilterOption(dim, value, on) {
   const all = lastOwnerOpts[dim] || [];
@@ -1373,22 +1383,22 @@ function setFilterOption(dim, value, on) {
   cur = on ? (cur.includes(value) ? cur : cur.concat([value])) : cur.filter(v => v !== value);
   holdFilters[dim] = all.every(v => cur.includes(v)) ? null : cur;
   saveHoldFilters();
-  renderOwnerSlide();
+  renderFilteredSlides();
 }
 function resetHoldFilters() {
   holdFilters = { ben: null, owner: null, cls: null };
   ownerExpanded.clear();
   openFilterMenu = null;
   saveHoldFilters();
-  renderOwnerSlide();
+  renderFilteredSlides();
 }
 function toggleFilterMenu(dim, ev) {
   if (ev) ev.stopPropagation();
   openFilterMenu = openFilterMenu === dim ? null : dim;
-  renderOwnerSlide();
+  renderFilteredSlides();
 }
 document.addEventListener('click', e => {
-  if (openFilterMenu && !e.target.closest('.msel')) { openFilterMenu = null; renderOwnerSlide(); }
+  if (openFilterMenu && !e.target.closest('.msel')) { openFilterMenu = null; renderFilteredSlides(); }
 });
 function toggleOwnerGroup(cls) {
   if (ownerExpanded.has(cls)) ownerExpanded.delete(cls); else ownerExpanded.add(cls);
@@ -1411,40 +1421,49 @@ function filterSummary(dim, opts) {
 function filterMenuHtml(dim, label, opts) {
   const allOn = holdFilters[dim] === null;
   const open = openFilterMenu === dim;
-  const id = `msel-all-${dim}`;
   return `<div class="msel"><span class="msel-lbl">${label}</span>` +
     `<button type="button" class="msel-btn${allOn ? '' : ' filtered'}" onclick="toggleFilterMenu('${dim}', event)">` +
     `${escapeHtml(filterSummary(dim, opts))} <span class="msel-caret">▾</span></button>` +
     (open ? `<div class="msel-menu">` +
-      `<label class="msel-all"><input type="checkbox" id="${id}"${allOn ? ' checked' : ''} onchange="setFilterAll('${dim}', this.checked)"> Select / deselect all</label>` +
+      `<label class="msel-all"><input type="checkbox" class="msel-all-${dim}"${allOn ? ' checked' : ''} onchange="setFilterAll('${dim}', this.checked)"> Select / deselect all</label>` +
       opts.map(v => `<label><input type="checkbox"${isSelected(dim, v) ? ' checked' : ''} ` +
         `onchange="setFilterOption('${dim}', this.dataset.v, this.checked)" data-v="${escapeHtml(v)}"> ${escapeHtml(v)}</label>`).join('') +
       `</div>` : '') + `</div>`;
 }
 
-function renderOwnerSlide(pf) {
-  pf = pf || lastPf;
-  const box = document.getElementById('own-controls'), tbl = document.getElementById('owner-table');
-  if (!pf || !box || !tbl) return;
-  const d = computeOwnerSlide(pf);
-  lastOwnerOpts = d.opts;
+// Slides 2 and 3 share one set of filters (holdFilters): changing them re-renders both.
+function renderFilteredSlides() {
+  renderOwnerSlide();
+  if (lastPf) renderAllocation(lastPf);
+}
 
+// The shortcut buttons, Reset all and the three dropdowns, drawn into every .filter-controls box.
+function renderFilterControls(opts) {
   const shortcutRow = (dim, label) => `<div class="ben-btns"><span class="msel-lbl sc-lbl">${label}</span>` +
     SHORTCUTS[dim].map((sc, i) => {
       const on = shortcutOn(dim, sc);
       return `<button type="button" class="btn btn-sm ben-btn${on ? ' on' : ''}" aria-pressed="${on}" ` +
         `title="${escapeHtml(sc.values.join(', '))}" onclick="toggleShortcut('${dim}', ${i})">${escapeHtml(sc.label)}</button>`;
     }).join('') + `</div>`;
-  box.innerHTML =
+  const html =
     `<div class="own-top"><div class="sc-rows">${shortcutRow('ben', 'Beneficiary shortcuts')}${shortcutRow('owner', 'Account owner shortcuts')}</div>` +
       `<button type="button" class="btn btn-secondary btn-sm reset-btn" onclick="resetHoldFilters()" title="Select everything and collapse all classes">↺ Reset all</button></div>` +
-    `<div class="own-filters">` + FILTER_DIMS.map(([dim, label]) => filterMenuHtml(dim, label, d.opts[dim])).join('') + `</div>`;
+    `<div class="own-filters">` + FILTER_DIMS.map(([dim, label]) => filterMenuHtml(dim, label, opts[dim])).join('') + `</div>`;
+  document.querySelectorAll('.filter-controls').forEach(box => { box.innerHTML = html; });
   // "Select / deselect all" shows a dash when only some options are selected.
   FILTER_DIMS.forEach(([dim]) => {
-    const el = document.getElementById(`msel-all-${dim}`);
     const s = holdFilters[dim];
-    if (el) el.indeterminate = s !== null && d.opts[dim].some(v => s.includes(v));
+    document.querySelectorAll(`.msel-all-${dim}`).forEach(el => { el.indeterminate = s !== null && opts[dim].some(v => s.includes(v)); });
   });
+}
+
+function renderOwnerSlide(pf) {
+  pf = pf || lastPf;
+  const tbl = document.getElementById('owner-table');
+  if (!pf || !tbl) return;
+  const d = computeOwnerSlide(pf);
+  lastOwnerOpts = d.opts;
+  renderFilterControls(d.opts);
 
   const maxPct = Math.max(0, ...d.groups.map(g => g.pct || 0));
   // Owner columns: a class row splits its value by owner; an account row shows its value under its owner.
