@@ -163,6 +163,37 @@
   table.pf tr.in-class td.fname { padding-left: 25px; }
   .pf-group-btns { display: flex; gap: 8px; margin: 0 0 8px; }
 
+  /* ── Slide 2: value by owner / beneficiary ── */
+  .own-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .ben-btns { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .sc-rows { display: flex; flex-direction: column; gap: 8px; }
+  .sc-lbl { width: 160px; }
+  .ben-btn { background: white; color: var(--ink); border: 1.5px solid #bbb; min-width: 76px; }
+  .ben-btn.on { background: var(--yale); color: white; border-color: var(--yale); }
+  .reset-btn { border-color: var(--orange); color: var(--orange); }
+  .own-filters { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+  .msel { position: relative; display: flex; flex-direction: column; gap: 3px; }
+  .msel-lbl { font-size: 12px; font-weight: 600; color: #555; margin-right: 2px; }
+  .msel-btn { min-width: 190px; text-align: left; padding: 6px 10px; font-size: 13.5px; border: 1.5px solid #ccc; border-radius: 8px;
+              background: white; color: #1a1a1a; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+  .msel-btn.filtered { border-color: var(--yale); background: #eef3fa; }
+  .msel-caret { color: #888; }
+  .msel-menu { position: absolute; top: 100%; left: 0; z-index: 50; margin-top: 4px; background: white; border: 1px solid #ccc;
+               border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.15); padding: 6px 0; min-width: 220px; max-height: 320px; overflow-y: auto; }
+  .msel-menu label { display: flex; align-items: center; gap: 8px; padding: 4px 12px; margin: 0; font-size: 13.5px; font-weight: 400;
+                     color: #1a1a1a; text-transform: none; letter-spacing: normal; cursor: pointer; white-space: nowrap; }
+  .msel-menu label:hover { background: var(--cream); }
+  .msel-menu input { width: auto; margin: 0; }
+  .msel-menu .msel-all { font-weight: 600; border-bottom: 1px solid #eee; padding-bottom: 7px; margin-bottom: 3px; }
+  table.owners tr.class-row { cursor: pointer; }
+  table.owners tr.class-row td { font-weight: 600; border-bottom: 1px solid #e2e2e2; }
+  table.owners tr.class-row:hover td:first-child { color: var(--orange); }
+  table.owners tr.class-row .caret { display: inline-block; width: 16px; color: #888; }
+  table.owners .cnt { font-weight: 400; color: #999; }
+  table.owners td.oname { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  table.owners td.nodata { color: #b5b5b5; font-style: italic; }
+  table.owners .share-mark { color: #888; margin-left: 1px; }
+
   /* ── Portfolio slide deck + Present (full-screen) mode (GTIA style guide §20, §20a).
      The slides are tables, so presenting scales the whole slide (fitPresentZoom) rather than
      enlarging fonts. ── */
@@ -189,7 +220,7 @@
   table.alloc td { border-bottom: 1px solid #f0f0f0; }
   table.alloc tr.total td { font-weight: 700; border-top: 1px solid #333; border-bottom: none; }
   table.alloc tr.total.plain td { font-weight: 400; }
-  table.alloc td.assumed { color: #9a9a9a; }
+  table.alloc td.assumed { font-style: italic; color: #555; }
   /* Illiquid assumed returns: italic, so they read as assumptions on top of the color scale. */
   table.pf tr.illiquid td.assumed { font-style: italic; color: #555; }
   table.pf td.neg { color: var(--red); }
@@ -335,18 +366,33 @@
             <p class="desc" style="margin-top:14px">
               $ values in thousands. Returns are total returns (dividends reinvested). 5-year total return is annualized;
               its liquid total is value-weighted over funds with 5 years of history. Illiquid returns (in italics) are your
-              assumed annual returns; the All-assets Tot ret colors compare every account, liquid and illiquid. Prices are end-of-day closes from Tiingo; an "As of" time (ET) means the price is a newer
+              assumed annual returns, pro-rated for the part of the year gone by (hover to see the annual figure); the
+              All-assets YTD colors compare every account, liquid and illiquid. Prices are end-of-day closes from Tiingo; an "As of" time (ET) means the price is a newer
               quote from Yahoo Finance, used until Tiingo catches up.
             </p>
           </div>
+          <div class="slide hidden" id="slide-owners">
+            <div id="own-controls"></div>
+            <div class="pf-group-btns">
+              <button class="btn btn-secondary btn-sm" onclick="setAllOwnerGroups(true)">Expand all</button>
+              <button class="btn btn-secondary btn-sm" onclick="setAllOwnerGroups(false)">Collapse all</button>
+            </div>
+            <div class="tbl-wrap"><table class="alloc owners" id="owner-table"></table></div>
+            <p class="desc" style="margin-top:14px">
+              $ values in thousands, at current prices; liquid and illiquid accounts together. An account with two
+              beneficiaries, or a joint one ("Dan &amp; Alison"), is split equally between them, so a filtered value marked
+              <strong>*</strong> is a share of the account (hover to see it). "% of total assets" is a share of everything the
+              selected account owners hold. Your filter choices are remembered on this device; <strong>Reset all</strong> selects everything.
+            </p>
+          </div>
+
           <div class="slide hidden" id="slide-alloc">
             <div class="tbl-wrap"><table class="alloc" id="alloc-table"></table></div>
-            <h3 style="font-weight:400;font-style:italic">Subclasses for equities</h3>
-            <div class="tbl-wrap"><table class="alloc" id="alloc-eq-table"></table></div>
             <p class="desc" style="margin-top:14px">
-              Returns are value-weighted averages. Gray returns come only from illiquid assets' assumed annual returns,
-              which are used for both the YTD and 5-year columns; funds without 5 years of history are left out of the 5-year
-              average. Holdings with no asset class set are grouped under "Unclassified" — set the class on the Setup tab.
+              Returns are value-weighted averages over liquid and illiquid accounts together. Italic returns come only from
+              illiquid assets' assumed annual returns: pro-rated for the part of the year gone by in the YTD column, in full in
+              the 5-year column. Funds without 5 years of history are left out of the 5-year average. Holdings with no asset
+              class set are grouped under "Unclassified" — set the class on the Setup tab.
             </p>
           </div>
         </div>
@@ -728,6 +774,14 @@ function matchOption(list, v) {
   return want ? (list.find(c => optKey(c) === want) || null) : '';
 }
 
+// Share of the calendar year gone by on `d` (New York date): Jan 1 → 1/365, Dec 31 → 1.
+function yearElapsedFraction(d) {
+  const [y, m, day] = d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }).split('-').map(Number);
+  const dayOfYear = (Date.UTC(y, m - 1, day) - Date.UTC(y, 0, 0)) / 86400000;
+  const daysInYear = (Date.UTC(y + 1, 0, 1) - Date.UTC(y, 0, 1)) / 86400000;
+  return dayOfYear / daysInYear;
+}
+
 // Value-weighted average of `field` over rows where both value and field are numbers.
 // Rows without the field are left out and the rest reweighted.
 function weightedAvg(rows, field) {
@@ -757,6 +811,7 @@ function computePortfolio(assetMap, priceMap) {
       id: a.id, order: a.order ?? 0, ticker: t,
       assetClass: a.assetClass || '',
       owner: a.owner || '',
+      beneficiary: a.beneficiary || '', beneficiary2: a.beneficiary2 || '',
       name: a.name || (p && p.name) || t,
       active: a.active !== false,
       units, price,
@@ -770,13 +825,21 @@ function computePortfolio(assetMap, priceMap) {
       priceError: p ? null : 'No price yet',
     };
   });
-  const illiquid = list.filter(a => a.kind === 'illiquid').sort(byOrder).map(a => ({
-    id: a.id, order: a.order ?? 0, name: a.name,
-    assetClass: a.assetClass || '',
-    owner: a.owner || '',
-    value: Number(a.value) || 0,                 // already $ thousands
-    ret: typeof a.assumedReturn === 'number' ? a.assumedReturn : null,
-  }));
+  // An illiquid asset's YTD return is its assumed annual return pro-rated by the share of the year
+  // gone by (straight-line: on June 30, about half of it).
+  const yearFrac = yearElapsedFraction(new Date());
+  const illiquid = list.filter(a => a.kind === 'illiquid').sort(byOrder).map(a => {
+    const ret = typeof a.assumedReturn === 'number' ? a.assumedReturn : null;
+    return {
+      id: a.id, order: a.order ?? 0, name: a.name,
+      assetClass: a.assetClass || '',
+      owner: a.owner || '',
+      beneficiary: a.beneficiary || '', beneficiary2: a.beneficiary2 || '',
+      value: Number(a.value) || 0,               // already $ thousands
+      ret,                                       // assumed annual return
+      ytd: ret === null ? null : ret * yearFrac, // pro-rated year to date
+    };
+  });
 
   const liqValue = liquid.reduce((s, r) => s + (r.value || 0), 0);
   const illValue = illiquid.reduce((s, r) => s + r.value, 0);
@@ -787,9 +850,10 @@ function computePortfolio(assetMap, priceMap) {
   });
   illiquid.forEach(r => { r.pctAll = allValue ? r.value / allValue : null; });
 
-  // All-assets return: liquid funds contribute YTD, illiquids their assumed return.
-  const allRows = liquid.map(r => ({ value: r.value, ret: r.ytd })).concat(illiquid.map(r => ({ value: r.value, ret: r.ret })));
+  // All-assets YTD return: liquid funds contribute YTD, illiquids their pro-rated assumed return.
+  const allRows = liquid.map(r => ({ value: r.value, ret: r.ytd })).concat(illiquid.map(r => ({ value: r.value, ret: r.ytd })));
   return {
+    yearFrac,
     liquid, illiquid,
     totals: {
       liqValue, illValue, allValue,
@@ -960,6 +1024,7 @@ function renderPortfolio() {
   if (!liquid.length && !illiquid.length) {
     document.getElementById('pf-table').innerHTML =
       '<tbody><tr><td class="l" style="padding:20px">No holdings yet. Add them on the Setup tab.</td></tr></tbody>';
+    renderOwnerSlide(pf);
     renderAllocation(pf);
     return;
   }
@@ -974,8 +1039,9 @@ function renderPortfolio() {
   const gYtd = colorScale(lGroups.map(g => g.ytd));
   // All-assets "Tot ret": one scale across every account, funds (YTD) and illiquid assets (assumed
   // return) together; likewise one scale across all class subtotals.
-  const cTot = colorScale(liquid.filter(r => r.active).map(r => r.ytd).concat(illiquid.map(r => r.ret)));
-  const gTot = colorScale(lGroups.map(g => g.ytd).concat(iGroups.map(g => g.ret)));
+  const cTot = colorScale(liquid.filter(r => r.active).map(r => r.ytd).concat(illiquid.map(r => r.ytd)));
+  const gTot = colorScale(lGroups.map(g => g.ytd).concat(iGroups.map(g => g.ytd)));
+  const proRated = r => ` title="Assumed ${fmtPct(r.ret)} a year × ${Math.round(pf.yearFrac * 100)}% of the year gone by"`;
   // Data bars: one scale per column, set by its largest row (a class subtotal is never smaller than its funds).
   const maxLiq = Math.max(0, ...lGroups.map(g => g.pctLiq || 0));
   const maxAll = Math.max(0, ...lGroups.map(g => g.pctAll || 0), ...iGroups.map(g => g.pctAll || 0));
@@ -990,7 +1056,7 @@ function renderPortfolio() {
        sortTh('dayChg', 'Day chg') + `<th class="sep sortable" onclick="setSort('tr5y')">5-year<br>total<br>return<span class="sort-arrow">${sortKey === 'tr5y' ? (sortDir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>` +
        '<th></th><th class="gap"></th>' +
        sortTh('ytd', 'YTD Tot ret') + sortTh('value', 'Current $K<br>value') + sortTh('pctLiq', '% of<br>liquid<br>assets') +
-       '<th>Tot ret</th><th>Current $K<br>value</th><th>% of all<br>assets</th></tr></thead><tbody>';
+       '<th>YTD tot ret</th><th>Current $K<br>value</th><th>% of all<br>assets</th></tr></thead><tbody>';
 
   lGroups.forEach(g => {
     h += `<tr class="class-row" onclick="toggleClassGroup('${g.key}')" title="${g.open ? 'Collapse' : 'Expand'}">${groupCell(g)}` +
@@ -1032,13 +1098,13 @@ function renderPortfolio() {
   iGroups.forEach(g => {
     h += `<tr class="class-row illiquid" onclick="toggleClassGroup('${g.key}')" title="${g.open ? 'Collapse' : 'Expand'}">${groupCell(g)}` +
       `<td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>` +
-      `<td class="assumed"${bg(gTot(g.ret))}>${fmtPct(g.ret)}</td><td>${fmtNum(g.value, 0)}</td>` +
+      `<td class="assumed"${bg(gTot(g.ytd))}${proRated(g)}>${fmtPct(g.ytd)}</td><td>${fmtNum(g.value, 0)}</td>` +
       `<td style="${dataBar(g.pctAll, maxAll)}">${fmtPct(g.pctAll)}</td></tr>`;
     if (!g.open) return;
     g.rows.forEach(r => {
       h += `<tr class="illiquid in-class"><td class="l"></td><td class="l fname" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</td>` +
         `<td colspan="4"></td><td class="sep"></td><td></td><td class="gap"></td><td colspan="3"></td>` +
-        `<td class="assumed"${bg(cTot(r.ret))}>${fmtPct(r.ret)}</td><td>${fmtNum(r.value, 0)}</td>` +
+        `<td class="assumed"${bg(cTot(r.ytd))}${proRated(r)}>${fmtPct(r.ytd)}</td><td>${fmtNum(r.value, 0)}</td>` +
         `<td style="${dataBar(r.pctAll, maxAll)}">${fmtPct(r.pctAll)}</td></tr>`;
     });
   });
@@ -1048,6 +1114,7 @@ function renderPortfolio() {
        `<td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 0)}</td><td>${t.allValue ? '100%' : ''}</td></tr>`;
   h += '</tbody>';
   document.getElementById('pf-table').innerHTML = h;
+  renderOwnerSlide(pf);
   renderAllocation(pf);
 }
 
@@ -1058,12 +1125,13 @@ const EQUITY_CLASSES = ASSET_CLASSES.filter(c => c.startsWith('Equity'));
 
 // Groups holdings into rows by a key function. Each row: value ($K), pctAll, ytd, tr5y, and
 // whether each return comes only from illiquid assumed returns. Liquid funds contribute their
-// YTD / 5-year returns; illiquid assets contribute their assumed annual return to both.
+// YTD / 5-year returns; illiquid assets contribute their assumed annual return, pro-rated to date
+// for YTD (as on slide 1) and in full for 5-year.
 function allocationRows(pf, keyOf, order) {
   const allValue = pf.totals.allValue;
   const items = pf.liquid.filter(r => typeof r.value === 'number')
     .map(r => ({ key: keyOf(r.assetClass), value: r.value, ytd: r.ytd, tr5y: r.tr5y, assumed: false }))
-    .concat(pf.illiquid.map(r => ({ key: keyOf(r.assetClass), value: r.value, ytd: r.ret, tr5y: r.ret, assumed: true })))
+    .concat(pf.illiquid.map(r => ({ key: keyOf(r.assetClass), value: r.value, ytd: r.ytd, tr5y: r.ret, assumed: true })))
     .filter(i => i.key !== null);
   const summarize = (label, list) => {
     const value = list.reduce((s, i) => s + i.value, 0);
@@ -1087,14 +1155,12 @@ function computeAllocation(pf) {
   const byClass = allocationRows(pf,
     c => !c ? UNCL : EQUITY_CLASSES.includes(c) ? 'Equities' : c,
     ['Equities', ...ASSET_CLASSES.filter(c => !EQUITY_CLASSES.includes(c)), UNCL]);
-  const equities = allocationRows(pf, c => EQUITY_CLASSES.includes(c) ? c : null, EQUITY_CLASSES);
-  equities.total.label = 'Total equities';
-  return { byClass, equities };
+  return { byClass };
 }
 
-// Each allocation table sorts on its own (GTIA style guide §10: one key/dir pair per table).
+// The allocation table sorts on its own (GTIA style guide §10: one key/dir pair per table).
 // key null = asset-class order. The total row always stays at the bottom.
-const allocSort = { main: { key: null, dir: 'desc' }, eq: { key: null, dir: 'desc' } };
+const allocSort = { main: { key: null, dir: 'desc' } };
 let lastPf = null;
 
 function setAllocSort(table, key) {
@@ -1122,7 +1188,8 @@ function allocationTableHtml({ rows, total }, table, opts = {}) {
   const s = allocSort[table];
   const cYtd = colorScale(rows.map(r => r.ytd)), c5 = colorScale(rows.map(r => r.tr5y));
   const maxPct = Math.max(0, ...rows.map(r => r.pctAll || 0));
-  const retCell = (x, assumed, scale) => `<td class="${assumed ? 'assumed' : ''}"${!assumed && scale(x) ? ` style="background:${scale(x)}"` : ''}>${fmtPct(x)}</td>`;
+  // Every class is on one color scale, assumed-only returns included (shown in italics), as on slide 1.
+  const retCell = (x, assumed, scale) => `<td class="${assumed ? 'assumed' : ''}"${scale(x) ? ` style="background:${scale(x)}"` : ''}>${fmtPct(x)}</td>`;
   const pctCell = r => `<td${opts.bars ? ` style="${dataBar(r.pctAll, maxPct)}"` : ''}>${fmtPct(r.pctAll, 0)}</td>`;
   const row = (r, cls) => `<tr class="${cls}${cls && opts.plainTotal ? ' plain' : ''}"><td class="l">${escapeHtml(cls ? r.label : label(r.label))}</td><td>${fmtNum(r.value, 0)}</td>` +
     (cls ? `<td>${fmtPct(r.pctAll, 0)}</td><td>${fmtPct(r.ytd)}</td><td>${fmtPct(r.tr5y)}</td>`
@@ -1133,7 +1200,7 @@ function allocationTableHtml({ rows, total }, table, opts = {}) {
       `<span class="sort-arrow" style="opacity:${on ? 1 : .55}">${on ? (s.dir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>`;
   };
   return `<thead><tr><th class="l">${escapeHtml(opts.firstCol || 'Asset class')}</th>` + th('value', 'Current value<br>$K') + '<th>% of total<br>assets</th>' +
-    th('ytd', 'YTD<br>return') + th('tr5y', '5-year<br>return') + '</tr></thead><tbody>' +
+    th('ytd', 'YTD<br>tot ret') + th('tr5y', '5-year<br>tot ret') + '</tr></thead><tbody>' +
     sortAllocRows(rows, s).map(r => row(r, '')).join('') + row(total, 'total') + '</tbody>';
 }
 
@@ -1141,9 +1208,6 @@ function renderAllocation(pf) {
   lastPf = pf;
   const a = computeAllocation(pf);
   document.getElementById('alloc-table').innerHTML = allocationTableHtml(a.byClass, 'main', { bars: true });
-  document.getElementById('alloc-eq-table').innerHTML = allocationTableHtml(a.equities, 'eq', {
-    bars: true, firstCol: 'Equity subclass', label: s => s.replace(/^Equity\s+/, ''), plainTotal: true,
-  });
   renderCurrentSlide();   // titles, Prev/Next state, and (when presenting) the fit for new data
 }
 
@@ -1152,8 +1216,230 @@ function renderAllocation(pf) {
    a slide here is just its title and the element to show. A new slide = one more entry
    plus its markup inside #slide-content.
 ══════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════
+   CURRENT VALUE BY OWNER / BENEFICIARY (Portfolio slide 2)
+   Filters: Beneficiary, Account owner, Asset class (multi-select dropdowns), plus shortcut
+   buttons that set the Beneficiary filter. The selection is remembered on this device.
+══════════════════════════════════════════════════════════════════════ */
+// Shortcut buttons for a filter: each sets a group of its options. Account owners: "Dan & Alison"
+// covers the couple's accounts (joint, Dan's, Alison's); "Lauren/Trust" is Lauren and the Trust for Lauren.
+const SHORTCUTS = {
+  ben: ['Alison', 'Lauren', 'Jodie', 'Dan'].map(p => ({ label: p, values: [p] })),
+  owner: [
+    { label: 'Dan & Alison', values: ['Dan & Alison', 'Dan', 'Alison'] },
+    { label: 'Family Trusts', values: ['AS Family Trust', 'DS Family Trust'] },
+    { label: 'Lauren/Trust', values: ['Lauren', 'Trust for Lauren'] },
+    { label: 'Trust for Jodie', values: ['Trust for Jodie'] },
+  ],
+};
+const NO_VALUE = '(none)', UNCLASSIFIED = 'Unclassified';
+const HOLD_FILTERS_KEY = 'diy-portfolio-owner-filters-v1';
+const FILTER_DIMS = [['ben', 'Beneficiary'], ['owner', 'Account owner'], ['cls', 'Asset class']];
+// Each filter: null = everything selected (so options added later are included too), else the selected labels.
+let holdFilters = loadHoldFilters();
+const ownerExpanded = new Set();   // asset classes opened on this slide (all start collapsed)
+let openFilterMenu = null;
+
+function loadHoldFilters() {
+  const pick = v => Array.isArray(v) ? v.map(String) : null;
+  try {
+    const v = JSON.parse(localStorage.getItem(HOLD_FILTERS_KEY) || '{}');
+    return { ben: pick(v.ben), owner: pick(v.owner), cls: pick(v.cls) };
+  } catch (e) { return { ben: null, owner: null, cls: null }; }
+}
+function saveHoldFilters() {
+  try { localStorage.setItem(HOLD_FILTERS_KEY, JSON.stringify(holdFilters)); } catch (e) { /* private mode */ }
+}
+
+// The people a beneficiary label names: "Dan & Alison" → Dan, Alison.
+function beneficiaryPeople(label) { return String(label || '').split(/\s*&\s*/).map(s => s.trim()).filter(Boolean); }
+// Each person's share of an account. The named beneficiaries split it equally, and a joint label
+// ("Dan & Alison") splits its part again: DS Family Trust (Alison + Lauren) → ½ each;
+// "Dan & Alison" alone → ½ each. No beneficiary → all of it to "(none)".
+function beneficiaryShares(a) {
+  const slots = [a.beneficiary, a.beneficiary2].filter(Boolean);
+  if (!slots.length) return { [NO_VALUE]: 1 };
+  const out = {};
+  slots.forEach(s => {
+    const people = beneficiaryPeople(s);
+    people.forEach(p => { out[p] = (out[p] || 0) + 1 / slots.length / people.length; });
+  });
+  return out;
+}
+
+function ownerSlideAccounts(pf) {
+  return pf.liquid.concat(pf.illiquid).map(r => ({
+    id: r.id, order: r.order, name: r.name, ticker: r.ticker || '', value: r.value,
+    cls: r.assetClass || UNCLASSIFIED, owner: r.owner || NO_VALUE, shares: beneficiaryShares(r),
+  }));
+}
+// Options for each filter: the pick lists, plus anything found in the data, plus "(none)".
+function filterOptions(accts) {
+  const uniq = (base, found, tail) => {
+    const out = [...base];
+    found.forEach(v => { if (v !== tail && !out.includes(v)) out.push(v); });
+    return out.concat([tail]);
+  };
+  return {
+    ben: uniq([...new Set(BENEFICIARIES.flatMap(beneficiaryPeople))], accts.flatMap(a => Object.keys(a.shares)), NO_VALUE),
+    owner: uniq(ACCOUNT_OWNERS, accts.map(a => a.owner), NO_VALUE),
+    cls: uniq(ASSET_CLASSES, accts.map(a => a.cls), UNCLASSIFIED),
+  };
+}
+function isSelected(dim, v) { const s = holdFilters[dim]; return s === null || s.includes(v); }
+
+// Rows for the table: each account's value scaled to the selected beneficiaries' share.
+// The % column is a share of everything the selected account owners hold (beneficiary and
+// asset-class filters don't change that base).
+function computeOwnerSlide(pf) {
+  const accts = ownerSlideAccounts(pf);
+  const base = accts.filter(a => isSelected('owner', a.owner)).reduce((s, a) => s + (a.value || 0), 0);
+  const shown = [];
+  accts.forEach(a => {
+    if (!isSelected('owner', a.owner) || !isSelected('cls', a.cls)) return;
+    const frac = Object.entries(a.shares).reduce((s, [p, w]) => s + (isSelected('ben', p) ? w : 0), 0);
+    if (frac <= 1e-9) return;
+    shown.push({ ...a, frac, shownValue: a.value === null ? null : a.value * frac });
+  });
+  const opts = filterOptions(accts);
+  const groups = opts.cls.map(cls => {
+    const rows = shown.filter(a => a.cls === cls).sort((x, y) => x.order - y.order);
+    const value = rows.reduce((s, a) => s + (a.shownValue || 0), 0);
+    return { cls, rows, value, pct: base ? value / base : null, open: ownerExpanded.has(cls) };
+  }).filter(g => g.rows.length);
+  const total = groups.reduce((s, g) => s + g.value, 0);
+  return { opts, groups, base, total, pct: base ? total / base : null, count: shown.length };
+}
+
+/* ── Shortcut buttons: they set their filter (Beneficiary or Account owner) to exactly what the
+   buttons that are on cover; with none on, everything is selected. A button shows "on" when all
+   it covers is in a partial selection, so editing the dropdown is reflected here. ── */
+function shortcutOn(dim, sc) {
+  const s = holdFilters[dim];
+  return s !== null && sc.values.every(v => s.includes(v));
+}
+function toggleShortcut(dim, i) {
+  const sc = SHORTCUTS[dim][i];
+  let cur = holdFilters[dim] === null ? [] : [...holdFilters[dim]];
+  cur = shortcutOn(dim, sc) ? cur.filter(v => !sc.values.includes(v)) : [...new Set(cur.concat(sc.values))];
+  holdFilters[dim] = cur.length ? cur : null;
+  saveHoldFilters();
+  renderOwnerSlide();
+}
+function setFilterAll(dim, on) {
+  holdFilters[dim] = on ? null : [];
+  saveHoldFilters();
+  renderOwnerSlide();
+}
+function setFilterOption(dim, value, on) {
+  const all = lastOwnerOpts[dim] || [];
+  let cur = holdFilters[dim] === null ? [...all] : [...holdFilters[dim]];
+  cur = on ? (cur.includes(value) ? cur : cur.concat([value])) : cur.filter(v => v !== value);
+  holdFilters[dim] = all.every(v => cur.includes(v)) ? null : cur;
+  saveHoldFilters();
+  renderOwnerSlide();
+}
+function resetHoldFilters() {
+  holdFilters = { ben: null, owner: null, cls: null };
+  ownerExpanded.clear();
+  openFilterMenu = null;
+  saveHoldFilters();
+  renderOwnerSlide();
+}
+function toggleFilterMenu(dim, ev) {
+  if (ev) ev.stopPropagation();
+  openFilterMenu = openFilterMenu === dim ? null : dim;
+  renderOwnerSlide();
+}
+document.addEventListener('click', e => {
+  if (openFilterMenu && !e.target.closest('.msel')) { openFilterMenu = null; renderOwnerSlide(); }
+});
+function toggleOwnerGroup(cls) {
+  if (ownerExpanded.has(cls)) ownerExpanded.delete(cls); else ownerExpanded.add(cls);
+  renderOwnerSlide();
+}
+function setAllOwnerGroups(open) {
+  ownerExpanded.clear();
+  if (open) (lastOwnerOpts.cls || []).forEach(c => ownerExpanded.add(c));
+  renderOwnerSlide();
+}
+
+let lastOwnerOpts = {};
+function filterSummary(dim, opts) {
+  const s = holdFilters[dim];
+  if (s === null) return 'All';
+  const chosen = opts.filter(v => s.includes(v));
+  if (!chosen.length) return 'None';
+  return chosen.length <= 2 ? chosen.join(', ') : `${chosen.length} of ${opts.length}`;
+}
+function filterMenuHtml(dim, label, opts) {
+  const allOn = holdFilters[dim] === null;
+  const open = openFilterMenu === dim;
+  const id = `msel-all-${dim}`;
+  return `<div class="msel"><span class="msel-lbl">${label}</span>` +
+    `<button type="button" class="msel-btn${allOn ? '' : ' filtered'}" onclick="toggleFilterMenu('${dim}', event)">` +
+    `${escapeHtml(filterSummary(dim, opts))} <span class="msel-caret">▾</span></button>` +
+    (open ? `<div class="msel-menu">` +
+      `<label class="msel-all"><input type="checkbox" id="${id}"${allOn ? ' checked' : ''} onchange="setFilterAll('${dim}', this.checked)"> Select / deselect all</label>` +
+      opts.map(v => `<label><input type="checkbox"${isSelected(dim, v) ? ' checked' : ''} ` +
+        `onchange="setFilterOption('${dim}', this.dataset.v, this.checked)" data-v="${escapeHtml(v)}"> ${escapeHtml(v)}</label>`).join('') +
+      `</div>` : '') + `</div>`;
+}
+
+function renderOwnerSlide(pf) {
+  pf = pf || lastPf;
+  const box = document.getElementById('own-controls'), tbl = document.getElementById('owner-table');
+  if (!pf || !box || !tbl) return;
+  const d = computeOwnerSlide(pf);
+  lastOwnerOpts = d.opts;
+
+  const shortcutRow = (dim, label) => `<div class="ben-btns"><span class="msel-lbl sc-lbl">${label}</span>` +
+    SHORTCUTS[dim].map((sc, i) => {
+      const on = shortcutOn(dim, sc);
+      return `<button type="button" class="btn btn-sm ben-btn${on ? ' on' : ''}" aria-pressed="${on}" ` +
+        `title="${escapeHtml(sc.values.join(', '))}" onclick="toggleShortcut('${dim}', ${i})">${escapeHtml(sc.label)}</button>`;
+    }).join('') + `</div>`;
+  box.innerHTML =
+    `<div class="own-top"><div class="sc-rows">${shortcutRow('ben', 'Beneficiary shortcuts')}${shortcutRow('owner', 'Account owner shortcuts')}</div>` +
+      `<button type="button" class="btn btn-secondary btn-sm reset-btn" onclick="resetHoldFilters()" title="Select everything and collapse all classes">↺ Reset all</button></div>` +
+    `<div class="own-filters">` + FILTER_DIMS.map(([dim, label]) => filterMenuHtml(dim, label, d.opts[dim])).join('') + `</div>`;
+  // "Select / deselect all" shows a dash when only some options are selected.
+  FILTER_DIMS.forEach(([dim]) => {
+    const el = document.getElementById(`msel-all-${dim}`);
+    const s = holdFilters[dim];
+    if (el) el.indeterminate = s !== null && d.opts[dim].some(v => s.includes(v));
+  });
+
+  const maxPct = Math.max(0, ...d.groups.map(g => g.pct || 0));
+  let h = '<thead><tr><th class="l">Asset class</th><th class="l">Account owner</th><th class="l">Name</th>' +
+    '<th>Value<br>$K</th><th>% of total<br>assets</th></tr></thead><tbody>';
+  if (!d.groups.length) {
+    h += `<tr><td class="l muted" colspan="5" style="padding:12px">No accounts match these filters.</td></tr>`;
+  }
+  d.groups.forEach(g => {
+    h += `<tr class="class-row" onclick="toggleOwnerGroup(this.dataset.cls)" data-cls="${escapeHtml(g.cls)}" title="${g.open ? 'Collapse' : 'Expand'}">` +
+      `<td class="l" colspan="3"><span class="caret">${g.open ? '▾' : '▸'}</span>${escapeHtml(g.cls)} <span class="cnt">(${g.rows.length})</span></td>` +
+      `<td>${fmtNum(g.value, 0)}</td><td style="${dataBar(g.pct, maxPct)}">${fmtPct(g.pct, 1)}</td></tr>`;
+    if (!g.open) return;
+    g.rows.forEach(a => {
+      const part = a.frac < 0.999 && a.value !== null ? ` title="${Math.round(a.frac * 100)}% share of ${fmtNum(a.value, 0)}"` : '';
+      const nm = a.ticker && a.name !== a.ticker ? `${a.name} (${a.ticker})` : a.name || a.ticker;
+      h += `<tr class="in-class"><td></td><td class="l">${escapeHtml(a.owner)}</td>` +
+        `<td class="l oname" title="${escapeHtml(nm)}">${escapeHtml(nm)}</td>` +
+        (a.shownValue === null ? `<td class="nodata">no price</td><td></td>`
+          : `<td${part}>${fmtNum(a.shownValue, 0)}${part ? '<span class="share-mark">*</span>' : ''}</td>` +
+            `<td style="${dataBar(d.base ? a.shownValue / d.base : null, maxPct)}">${fmtPct(d.base ? a.shownValue / d.base : null, 1)}</td>`) + `</tr>`;
+    });
+  });
+  h += `<tr class="total"><td class="l" colspan="3">Total <span class="cnt">(${d.count} account${d.count === 1 ? '' : 's'})</span></td>` +
+    `<td>${fmtNum(d.total, 0)}</td><td>${fmtPct(d.pct, 1)}</td></tr></tbody>`;
+  tbl.innerHTML = h;
+  fitPresentZoom();
+}
+
 const SLIDES = [
   { title: 'Total returns on investments, YTD and 5-year', el: 'slide-returns' },
+  { title: 'Current Value of Holdings (by owner/beneficiary)', el: 'slide-owners' },
   { title: 'Asset allocation and performance', el: 'slide-alloc' },
 ];
 let currentSlideIndex = 0;
