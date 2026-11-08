@@ -195,6 +195,10 @@
   table.owners .share-mark { color: #888; margin-left: 1px; }
   table.owners th.ocol, table.owners td.ocol { min-width: 58px; padding-left: 8px; padding-right: 8px; }
   table.owners .ofirst { border-left: 1px solid #333; }
+  /* Bracketed titles over the owner columns: a line along the top with ticks down at each end. */
+  table.owners tr.ohdr th { border-bottom: none; padding: 0 3px 3px; vertical-align: bottom; }
+  table.owners th.obrk div { border: 1px solid #333; border-bottom: none; text-align: center; font-weight: 600;
+                             padding: 3px 6px 2px; white-space: nowrap; }
 
   /* ── Portfolio slide deck + Present (full-screen) mode (GTIA style guide §20, §20a).
      The slides are tables, so presenting scales the whole slide (fitPresentZoom) rather than
@@ -1335,6 +1339,12 @@ const OWNER_COLUMN_LABELS = {
   'Dan & Alison': 'WROS', 'Dan': 'Dan', 'Alison': 'Alison', 'DS Family Trust': 'DS Fam<br>Trust',
   'AS Family Trust': 'AS Fam<br>Trust', 'Lauren': 'Lauren', 'Trust for Lauren': 'Trust<br>Lauren', 'Trust for Jodie': 'Trust<br>Jodie',
 };
+// Row-2 titles over the owner columns (Trust for Jodie has none).
+const OWNER_COLUMN_GROUPS = [
+  { label: 'Dan & Alison', owners: ['Dan & Alison', 'Dan', 'Alison'] },
+  { label: 'Family Trusts', owners: ['DS Family Trust', 'AS Family Trust'] },
+  { label: 'Lauren/Trust', owners: ['Lauren', 'Trust for Lauren'] },
+];
 const OWNER_COLUMN_ORDER = ['Dan & Alison', 'Dan', 'Alison', 'DS Family Trust', 'AS Family Trust', 'Lauren', 'Trust for Lauren', 'Trust for Jodie'];
 
 /* ── Shortcut buttons: they set their filter (Beneficiary or Account owner) to exactly what the
@@ -1441,7 +1451,23 @@ function renderOwnerSlide(pf) {
   const amt = v => typeof v === 'number' && Math.abs(v) >= 0.5 ? fmtNum(v, 0) : '';
   const ownerCells = (m, first) => d.ownerCols.map((c, i) => `<td class="ocol${i === 0 ? ' ofirst' : ''}">${amt(m[c.owner])}</td>`).join('');
   const nCols = 4 + d.ownerCols.length;
-  let h = '<thead><tr><th class="l">Asset class</th><th class="l">Name</th>' +
+  // Two bracketed title rows over the owner columns (brackets like slide 1's "Liquid assets"):
+  // row 1 spans every owner column; row 2 groups them. Each bracket covers only the columns shown.
+  let h = '<thead>';
+  if (d.ownerCols.length) {
+    const brk = (text, span) => `<th class="obrk" colspan="${span}"><div>${escapeHtml(text)}</div></th>`;
+    h += `<tr class="ohdr"><th colspan="4"></th>${brk('Current value $K by account owner', d.ownerCols.length)}</tr>`;
+    let row2 = '';
+    for (let i = 0; i < d.ownerCols.length;) {
+      const grp = OWNER_COLUMN_GROUPS.find(g => g.owners.includes(d.ownerCols[i].owner));
+      let n = 1;
+      while (grp && i + n < d.ownerCols.length && grp.owners.includes(d.ownerCols[i + n].owner)) n++;
+      row2 += grp ? brk(grp.label, n) : '<th></th>';
+      i += n;
+    }
+    h += `<tr class="ohdr"><th colspan="4"></th>${row2}</tr>`;
+  }
+  h += '<tr><th class="l">Asset class</th><th class="l">Name</th>' +
     '<th>Value<br>$K</th><th>% of total<br>assets</th>' +
     d.ownerCols.map((c, i) => `<th class="ocol${i === 0 ? ' ofirst' : ''}" title="${escapeHtml(c.owner)}">${c.labelHtml}</th>`).join('') +
     '</tr></thead><tbody>';
