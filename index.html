@@ -1621,6 +1621,11 @@ const OWNER_RENAMES = { 'wros': 'Dan & Alison' };
 function renameOwner(v) { return OWNER_RENAMES[String(v || '').trim().toLowerCase()] || v; }
 const PICK_FIELDS = ['assetClass', 'owner', 'beneficiary', 'beneficiary2', 'custodian'];
 
+// Only an illiquid Bonds account without a ticker may have a negative value (e.g. a loan or other
+// debt). The database rules check the same thing.
+function allowsNegativeValue(a) { return !a.ticker && a.liquidity === 'Illiquid' && a.assetClass === 'Bonds'; }
+const NEGATIVE_VALUE_RULE = 'a negative value is allowed only for an Illiquid account in Bonds (with no ticker).';
+
 function defaultLiquidity(ticker, assetClass) { return ticker || assetClass === 'Cash' ? 'Liquid' : 'Illiquid'; }
 
 // Fills a blank Beneficiary (and a blank Beneficiary 2) from the owner. Changes `a`; returns it.
@@ -1860,7 +1865,8 @@ function readEditor() {
       a.units = units;
     } else {
       const value = Number(valueRaw);
-      if (valueRaw === '' || !isFinite(value) || value < 0) errors.push(`${label}: value must be a number ≥ 0.`);
+      if (valueRaw === '' || !isFinite(value)) errors.push(`${label}: value must be a number.`);
+      else if (value < 0 && !allowsNegativeValue(a)) errors.push(`${label}: ${NEGATIVE_VALUE_RULE}`);
       a.value = value;
     }
     const cost = costRaw === '' ? 0 : Number(costRaw);
@@ -2149,9 +2155,11 @@ function buildUploadPlan(rawRows, current, resolutions = {}) {
     } else {
       if (!next.name) return err(label, 'An account without a ticker needs a name.');
       const v = num(get(C.value));
-      if (Number.isNaN(v) || (v !== null && v < 0)) return err(label, 'value_k must be a number ≥ 0.');
+      if (Number.isNaN(v)) return err(label, 'value_k must be a number.');
       if (v !== null) next.value = v;
       if (typeof next.value !== 'number') return err(label, 'An account without a ticker needs value_k ($ thousands).');
+      const liq = (str(C.liquidity) || old) ? next.liquidity : defaultLiquidity(next.ticker, next.assetClass);
+      if (next.value < 0 && !allowsNegativeValue({ ...next, liquidity: liq })) return err(label, `value_k: ${NEGATIVE_VALUE_RULE}`);
       delete next.units;
     }
     const cb = num(get(C.costBasis));
