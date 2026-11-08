@@ -1288,7 +1288,7 @@ function accountRowHtml(a, editable) {
   const num = (cls, v, extra = '') => `<input type="number" step="any" class="${cls}" value="${v ?? ''}"${extra} oninput="markDirty()">`;
   // data-liq-touched: an existing account keeps its stored Liquidity; a new row follows the defaults
   // (ticker or Cash → Liquid) until someone picks a Liquidity by hand.
-  return `<tr data-id="${escapeHtml(a.id || '')}" data-liq-touched="${a.id ? '1' : ''}">` +
+  return `<tr data-id="${escapeHtml(a.id || '')}" data-order="${a.id ? a.order : ''}" data-liq-touched="${a.id ? '1' : ''}">` +
     `<td style="width:190px">${pick(ASSET_CLASSES, a.assetClass, 'f-class', editable, 'onClassChange(this)')}</td>` +
     `<td style="width:165px">${pick(ACCOUNT_OWNERS, a.owner, 'f-owner', editable, 'onOwnerChange(this)')}</td>` +
     `<td style="width:135px">${pick(BENEFICIARIES, a.beneficiary, 'f-ben', editable)}</td>` +
@@ -1307,16 +1307,57 @@ function accountRowHtml(a, editable) {
 
 function isAdminUser() { return !!(currentUser && currentUser.isAdmin); }
 
+/* ── Sorting the accounts table (GTIA §10) ──
+   View only: it moves the existing rows, so unsaved edits are kept, and saving keeps each account's
+   stored order (data-order). Pick-list columns sort in list order, like slide 1; blanks always last. */
+const ACCOUNT_SORT = {   // column index → sort key and how to read the row's current value
+  0: { key: 'assetClass', val: tr => listPos(ASSET_CLASSES, tr.querySelector('.f-class').value) },
+  1: { key: 'owner', val: tr => listPos(ACCOUNT_OWNERS, tr.querySelector('.f-owner').value) },
+  6: { key: 'ticker', val: tr => normTicker(tr.querySelector('.f-ticker').value) },
+  7: { key: 'name', val: tr => tr.querySelector('.f-name').value.trim() },
+};
+let accountSort = { key: null, dir: 'asc' };
+function listPos(list, v) { const i = list.indexOf(v); return !v ? null : i < 0 ? list.length : i; }
+function accountHeaderHtml() {
+  return '<tr>' + ACCOUNT_COLUMNS.map((c, i) => {
+    const align = i >= 8 && i <= 11 ? 'text-align:right' : i === 12 ? 'text-align:center' : '';
+    const s = ACCOUNT_SORT[i];
+    if (!s) return `<th${align ? ` style="${align}"` : ''}>${c}</th>`;
+    const on = accountSort.key === s.key;
+    return `<th class="sortable" onclick="setAccountSort('${s.key}')">${c}` +
+      `<span class="sort-arrow" style="opacity:${on ? 1 : .55}">${on ? (accountSort.dir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>`;
+  }).join('') + '</tr>';
+}
+function setAccountSort(key) {
+  accountSort = accountSort.key === key ? { key, dir: accountSort.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' };
+  document.querySelector('#ed-accounts thead').innerHTML = accountHeaderHtml();
+  applyAccountSort();
+}
+function applyAccountSort() {
+  const tb = document.querySelector('#ed-accounts tbody');
+  const s = Object.values(ACCOUNT_SORT).find(x => x.key === accountSort.key);
+  if (!tb || !s) return;
+  const rows = [...tb.querySelectorAll('tr[data-id]')].map((tr, i) => ({ tr, i, v: s.val(tr) }));
+  const blank = v => v === null || v === '';
+  rows.sort((a, b) => {
+    if (blank(a.v) || blank(b.v)) return blank(a.v) && blank(b.v) ? a.i - b.i : blank(a.v) ? 1 : -1;
+    const c = typeof a.v === 'number' ? a.v - b.v : a.v.toLowerCase().localeCompare(b.v.toLowerCase());
+    return (accountSort.dir === 'asc' ? c : -c) || a.i - b.i;
+  });
+  rows.forEach(r => tb.appendChild(r.tr));
+}
+
 function renderHoldings() {
   if (!currentUser) return;
   const editable = isAdminUser();
   document.getElementById('setup-readonly-note').classList.toggle('hidden', editable);
   const rows = sortedAccounts();
   document.getElementById('ed-accounts').innerHTML =
-    '<thead><tr>' + ACCOUNT_COLUMNS.map((c, i) => `<th${i >= 8 && i <= 11 ? ' style="text-align:right"' : i === 12 ? ' style="text-align:center"' : ''}>${c}</th>`).join('') + '</tr></thead><tbody>' +
+    '<thead>' + accountHeaderHtml() + '</thead><tbody>' +
     (rows.map(a => accountRowHtml(a, editable)).join('') ||
       `<tr><td colspan="${ACCOUNT_COLUMNS.length}" class="muted" style="padding:12px">No accounts yet.${editable ? ' Click "+ Add account" or upload a file.' : ''}</td></tr>`) +
     '</tbody>';
+  applyAccountSort();
   holdingsDirty = false;
   document.getElementById('save-status').textContent = '';
 }
@@ -1357,7 +1398,10 @@ function discardEdits() { renderHoldings(); }
 // Reads the accounts table into { assets, errors }.
 function readEditor() {
   const out = {}, errors = [];
-  document.querySelectorAll('#ed-accounts tbody tr[data-id]').forEach((tr, i) => {
+  // Keep each account's stored order (the table may be sorted for viewing); new rows go at the end.
+  const trs = [...document.querySelectorAll('#ed-accounts tbody tr[data-id]')];
+  let nextOrder = Math.max(-1, ...trs.map(tr => tr.dataset.order === '' ? -1 : Number(tr.dataset.order))) + 1;
+  trs.forEach((tr, i) => {
     const q = c => tr.querySelector(c);
     const ticker = normTicker(q('.f-ticker').value);
     const name = q('.f-name').value.trim();
@@ -1368,7 +1412,8 @@ function readEditor() {
                   (costRaw === '' || Number(costRaw) === 0) && retRaw === '' && !Object.values(picks).some(Boolean);
     if (blank) return;
     const label = ticker || name || `Row ${i + 1}`;
-    const a = { name, ticker, liquidity: q('.f-liq').value, active: q('.f-active').checked, order: i, ...picks };
+    const order = tr.dataset.order === '' ? nextOrder++ : Number(tr.dataset.order);
+    const a = { name, ticker, liquidity: q('.f-liq').value, active: q('.f-active').checked, order, ...picks };
     if (ticker && !/^[A-Z0-9-]{1,12}$/.test(ticker)) errors.push(`${label}: a ticker can only have letters, numbers and "-" (up to 12).`);
     if (!ticker && !name) errors.push(`Row ${i + 1}: enter a ticker or a name.`);
     if (ticker) {
