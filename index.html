@@ -218,6 +218,10 @@
   table.preview tr.st-changed td { background: #fff8e1; }
   table.preview tr.st-error td { background: #fde8e8; color: #922; }
   table.preview tr.st-same td { color: #999; }
+  table.preview tr.st-pending td { background: #fff1e0; }
+  table.preview.unknowns tr.st-same td { color: inherit; background: #eef7ee; }
+  table.preview.unknowns select { max-width: 300px; }
+  table.preview.unknowns input[type=text] { padding: 3px 6px; font-size: 13px; border-radius: 4px; margin: 0; }
 
   .row-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
   .modal-overlay {
@@ -367,7 +371,9 @@
           <p class="desc">
             Upload an Excel (or CSV) file in the template's columns. A row with an <code>id</code> (from Download accounts)
             updates that account; a row without one adds a new account. A blank cell keeps the account's current value.
-            Accounts not in the file stay as they are. You'll see a preview before anything is saved.
+            Accounts not in the file stay as they are. You'll see a preview before anything is saved. If a pick-list cell
+            (asset class, owner, beneficiary, custodian, liquidity) has a value that isn't on the list, the preview asks you to
+            accept it (adding it to the list), change it, or reject the upload.
           </p>
           <input type="file" id="upload-file" accept=".csv,.xlsx,.xls" onchange="handleUpload(this)">
           <div id="upload-preview"></div>
@@ -654,6 +660,7 @@ function startApp() {
     });
     listeners.push(() => ref.off('value', cb));
   };
+  sub('household/options', v => { rebuildLists(v); renderPortfolio(); if (!holdingsDirty) renderHoldings(); });
   sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); convertAccountsIfNeeded(); });
   sub('prices', v => { prices = v || {}; renderPortfolio(); });
   sub('priceStatus', v => { priceStatus = v; renderPortfolio(); });
@@ -702,10 +709,10 @@ const ACCOUNT_OWNERS = ['Dan & Alison', 'Dan', 'Alison', 'AS Family Trust', 'DS 
 
 // Matches a typed/uploaded value to one of a list's labels, ignoring case, spaces and hyphens.
 // Returns the label, '' for a blank value, or null if nothing matches.
+function optKey(s) { return String(s || '').toLowerCase().replace(/[\s-]+/g, ''); }
 function matchOption(list, v) {
-  const k = s => String(s || '').toLowerCase().replace(/[\s-]+/g, '');
-  const want = k(v);
-  return want ? (list.find(c => k(c) === want) || null) : '';
+  const want = optKey(v);
+  return want ? (list.find(c => optKey(c) === want) || null) : '';
 }
 
 // Value-weighted average of `field` over rows where both value and field are numbers.
@@ -1142,7 +1149,29 @@ document.addEventListener('keydown', e => {
 const BENEFICIARIES = ['Alison', 'Dan', 'Lauren', 'Jodie', 'Dan & Alison'];
 const CUSTODIANS = ['Fidelity', 'Vanguard', 'McKinsey', 'MIO', 'Maverick', 'Equity Trust', 'Makers', 'Section',
   'Bettor', 'Royal Vet', 'VVP', 'Upright', 'Ally', 'Northgate', 'Chase', 'Discover'];
-const LIQUIDITY = ['Liquid', 'Illiquid'];
+const LIQUIDITY = ['Liquid', 'Illiquid'];   // fixed: never extended
+
+// Pick lists an Admin can extend by accepting a new value in an upload. The extra labels are stored at
+// household/options/{list} (an array) and appended to the built-in ones, in place, so every user of
+// these arrays (pick lists, uploads, the "Allowed values" sheet, slide ordering) sees them.
+const OPTION_LISTS = { assetClass: ASSET_CLASSES, owner: ACCOUNT_OWNERS, beneficiary: BENEFICIARIES, custodian: CUSTODIANS };
+const BASE_OPTIONS = Object.fromEntries(Object.entries(OPTION_LISTS).map(([k, l]) => [k, l.slice()]));
+const LIST_LABELS = { assetClass: 'Asset class', owner: 'Account owner', beneficiary: 'Beneficiary', custodian: 'Custodian', liquidity: 'Liquidity' };
+let customOptions = {};
+function listKeyOf(field) { return field === 'beneficiary2' ? 'beneficiary' : field; }
+function rebuildLists(stored) {
+  customOptions = {};
+  Object.entries(OPTION_LISTS).forEach(([k, list]) => {
+    const extra = [];
+    Object.values((stored && stored[k]) || {}).forEach(s => {
+      s = String(s || '').trim();
+      if (s && matchOption(BASE_OPTIONS[k], s) === null && matchOption(extra, s) === null) extra.push(s);
+    });
+    customOptions[k] = extra;
+    list.splice(0, list.length, ...BASE_OPTIONS[k], ...extra);
+  });
+  EQUITY_CLASSES.splice(0, EQUITY_CLASSES.length, ...ASSET_CLASSES.filter(c => c.startsWith('Equity')));
+}
 // Default [Beneficiary, Beneficiary 2] for each Account owner.
 const BENEFICIARY_DEFAULTS = {
   'Dan & Alison': ['Dan & Alison', ''], 'Dan': ['Dan', ''], 'Alison': ['Alison', ''],
@@ -1245,6 +1274,7 @@ const ACCOUNT_COLUMNS = ['Asset class', 'Account owner', 'Beneficiary', 'Benefic
   'Ticker', 'Name', 'Units', 'Value ($K)', 'Cost basis ($K)', 'Assumed return (%)', 'Show', ''];
 
 function pick(list, value, cls, editable, onchange, blank = true) {
+  if (value && !list.includes(value)) list = list.concat([value]);   // never drop a stored value that's off the list
   const opts = (blank ? ['<option value="">—</option>'] : []).concat(list.map(c =>
     `<option value="${escapeHtml(c)}"${c === value ? ' selected' : ''}>${escapeHtml(c)}</option>`));
   return `<select class="${cls}"${editable ? '' : ' disabled'} onchange="markDirty();${onchange || ''}">${opts.join('')}</select>`;
@@ -1552,8 +1582,21 @@ function fieldText(k, v) {
   return String(v);
 }
 
+// The label an Admin's decision gives an unrecognized value u, or '' while it's undecided.
+// res: { action: 'accept' } | { action: 'replace', value } | { action: 'type', value }.
+function resolveUnknown(res, u) {
+  if (!res) return '';
+  const list = u.list === 'liquidity' ? LIQUIDITY : OPTION_LISTS[u.list];
+  if (res.action === 'accept') return u.canAccept ? u.value : '';
+  const t = String(res.value || '').trim();
+  if (!t || t.length > 40) return '';
+  return matchOption(list, t) || (u.list === 'liquidity' ? '' : t);
+}
+
 // Turns raw rows (first row = headers) into proposed changes against the current accounts.
-function buildUploadPlan(rawRows, current) {
+// A pick-list value that isn't on its list goes into `unknowns`; its rows wait ('pending') until
+// `resolutions` (keyed by unknown.key) says to add it to the list or what to use instead.
+function buildUploadPlan(rawRows, current, resolutions = {}) {
   if (!rawRows.length) return { items: [], errors: ['The file is empty.'] };
   const hdr = rawRows[0].map(h => String(h).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
   const col = (...names) => names.map(n => hdr.indexOf(n)).find(i => i >= 0) ?? -1;
@@ -1572,7 +1615,7 @@ function buildUploadPlan(rawRows, current) {
   Object.entries(current || {}).forEach(([id, a]) => { cur[id] = { id, ...normalizeAccount(a) }; });
   const lists = { assetClass: ASSET_CLASSES, owner: ACCOUNT_OWNERS, beneficiary: BENEFICIARIES, beneficiary2: BENEFICIARIES,
                   custodian: CUSTODIANS, liquidity: LIQUIDITY };
-  const items = [], seenIds = new Set();
+  const items = [], seenIds = new Set(), unknowns = {};
 
   rawRows.slice(1).forEach((r, i) => {
     const line = i + 2;
@@ -1588,12 +1631,25 @@ function buildUploadPlan(rawRows, current) {
 
     const next = old ? { ...old } : { active: true, costBasis: 0 };
     delete next.id;
-    // Pick lists: blank keeps the current value; anything else must be on the list.
+    // Pick lists: blank keeps the current value; a value not on the list needs the Admin's decision.
+    const pending = [];
     for (const [f, list] of Object.entries(lists)) {
       const raw = str(C[f]);
-      const m = matchOption(list, f === 'owner' ? renameOwner(raw) : raw);
-      if (m === null) return err(label0, `Unknown ${FIELD_LABELS[f]} "${raw}". Use one of: ${list.join(', ')}.`);
+      const val = f === 'owner' ? renameOwner(raw) : raw;
+      let m = matchOption(list, val);
+      if (m === null) {
+        const lk = listKeyOf(f), key = lk + '|' + optKey(val);
+        const u = unknowns[key] || (unknowns[key] = { key, list: lk, value: val, lines: [],
+          canAccept: lk !== 'liquidity' && val.length <= 40 });
+        if (!u.lines.includes(line)) u.lines.push(line);
+        m = resolveUnknown(resolutions[key], u);
+        if (!m) { pending.push(`${LIST_LABELS[lk].toLowerCase()} "${val}"`); continue; }
+      }
       if (m) next[f] = m;
+    }
+    if (pending.length) {
+      items.push({ line, status: 'pending', label: label0, msg: 'Waiting for your decision on ' + pending.join(', ') + '.' });
+      return;
     }
     const tickerRaw = str(C.ticker);
     if (tickerRaw) next.ticker = normTicker(tickerRaw);
@@ -1631,7 +1687,15 @@ function buildUploadPlan(rawRows, current) {
     items.push({ line, status: !old ? 'new' : changes.length ? 'changed' : 'same', id: old && old.id, label, record: next,
                  changeText: changes.join(' · ') });
   });
-  return { items, errors };
+  // New labels to add to the lists: decided values that aren't on their list yet.
+  const additions = {};
+  Object.values(unknowns).forEach(u => {
+    const v = resolveUnknown(resolutions[u.key], u);
+    if (!v || u.list === 'liquidity' || matchOption(OPTION_LISTS[u.list], v) !== null) return;
+    const add = additions[u.list] || (additions[u.list] = []);
+    if (matchOption(add, v) === null) add.push(v);
+  });
+  return { items, errors, unknowns: Object.values(unknowns), additions };
 }
 
 async function handleUpload(input) {
@@ -1640,31 +1704,90 @@ async function handleUpload(input) {
   pendingUpload = null;
   if (!file) { box.innerHTML = ''; return; }
   try {
-    const plan = buildUploadPlan(await readUploadRows(file), assets);
-    plan.filename = file.name;
-    pendingUpload = plan;
+    const rawRows = await readUploadRows(file);
+    pendingUpload = { ...buildUploadPlan(rawRows, assets), rawRows, resolutions: {}, filename: file.name };
     renderUploadPreview();
   } catch (e) {
     box.innerHTML = `<div class="info-box danger" style="margin-top:12px">Could not read ${escapeHtml(file.name)}: ${escapeHtml(e.message)}</div>`;
   }
+}
+// Rebuilds the preview after the Admin decides about an unrecognized value.
+function replanUpload() {
+  const p = pendingUpload;
+  if (!p) return;
+  pendingUpload = { ...buildUploadPlan(p.rawRows, assets, p.resolutions), rawRows: p.rawRows, resolutions: p.resolutions, filename: p.filename };
+  renderUploadPreview();
+}
+function setUnknownAction(i, sel) {
+  const p = pendingUpload, u = p && p.unknowns[i];
+  if (!u) return;
+  const v = sel.value;
+  if (!v) delete p.resolutions[u.key];
+  else if (v === 'accept') p.resolutions[u.key] = { action: 'accept' };
+  else if (v === 'type') p.resolutions[u.key] = { action: 'type', value: (p.resolutions[u.key] || {}).typed || '' };
+  else p.resolutions[u.key] = { action: 'replace', value: v.slice(8) };   // 'replace:' + label
+  replanUpload();
+  if (v === 'type') { const t = document.getElementById('unk-type-' + i); if (t) t.focus(); }
+}
+function setUnknownTyped(i, input) {
+  const p = pendingUpload, u = p && p.unknowns[i];
+  if (!u) return;
+  p.resolutions[u.key] = { action: 'type', value: input.value, typed: input.value };
+  replanUpload();
+}
+// The "values not on the lists" panel: one row per distinct unrecognized value, each with
+// Add to the list / Change to <listed value> / Type a different value.
+function unknownsPanelHtml(p) {
+  const rowsText = lines => (lines.length === 1 ? 'row ' : 'rows ') + lines.join(', ');
+  const body = p.unknowns.map((u, i) => {
+    const res = p.resolutions[u.key];
+    const cur = !res ? '' : res.action === 'accept' ? 'accept' : res.action === 'type' ? 'type' : 'replace:' + res.value;
+    const list = u.list === 'liquidity' ? LIQUIDITY : OPTION_LISTS[u.list];
+    const opt = (val, text) => `<option value="${escapeHtml(val)}"${val === cur ? ' selected' : ''}>${escapeHtml(text)}</option>`;
+    const sel = `<select onchange="setUnknownAction(${i}, this)">` + opt('', 'Choose…') +
+      (u.canAccept ? opt('accept', `Accept "${u.value}" (add it to the list)`) : '') +
+      `<optgroup label="Edit: change it to">` + list.map(c => opt('replace:' + c, c)).join('') + `</optgroup>` +
+      (u.list === 'liquidity' ? '' : opt('type', 'Edit: type a different value…')) + `</select>`;
+    let extra = '';
+    if (res && res.action === 'type') {
+      const ok = resolveUnknown(res, u);
+      extra = ` <input type="text" id="unk-type-${i}" maxlength="40" value="${escapeHtml(res.value || '')}" placeholder="New value" ` +
+        `onchange="setUnknownTyped(${i}, this)" style="width:170px">` +
+        (ok ? ` <span class="status">${matchOption(list, ok) !== null ? 'On the list' : 'Will be added to the list'}</span>` : '');
+    }
+    return `<tr class="${resolveUnknown(res, u) ? 'st-same' : 'st-pending'}"><td>${LIST_LABELS[u.list]}</td>` +
+      `<td><strong>${escapeHtml(u.value)}</strong></td><td>${rowsText(u.lines)}</td><td>${sel}${extra}</td></tr>`;
+  }).join('');
+  return `<div class="info-box" style="margin-top:12px">The file has ${p.unknowns.length} value${p.unknowns.length === 1 ? '' : 's'} ` +
+    `that ${p.unknowns.length === 1 ? 'isn\'t' : 'aren\'t'} on the pick lists. For each one, <strong>accept</strong> it (it's added to the ` +
+    `list for everyone), <strong>edit</strong> it, or <strong>reject the upload</strong>.</div>` +
+    `<table class="preview unknowns"><thead><tr><th>Field</th><th>Value in the file</th><th>Where</th><th>Decision</th></tr></thead>` +
+    `<tbody>${body}</tbody></table>`;
 }
 function renderUploadPreview() {
   const box = document.getElementById('upload-preview');
   const p = pendingUpload;
   if (!p) { box.innerHTML = ''; return; }
   const bad = p.items.filter(i => i.status === 'error');
+  const waiting = p.items.filter(i => i.status === 'pending');
   const changes = p.items.filter(i => i.status === 'new' || i.status === 'changed');
-  const label = { new: 'New', changed: 'Changed', same: 'No change', error: 'Error' };
+  const label = { new: 'New', changed: 'Changed', same: 'No change', error: 'Error', pending: 'Needs a decision' };
   let h = '';
   if (p.errors.length) h += `<div class="info-box danger" style="margin-top:12px">${p.errors.map(escapeHtml).join('<br>')}</div>`;
+  if (p.unknowns.length) h += unknownsPanelHtml(p);
   h += `<table class="preview"><thead><tr><th>Row</th><th>Account</th><th>Status</th><th>Details</th></tr></thead><tbody>` +
     p.items.map(i => `<tr class="st-${i.status}"><td>${i.line}</td><td>${escapeHtml(i.label)}</td><td>${label[i.status]}</td>` +
-      `<td>${escapeHtml(i.status === 'error' ? i.msg : i.changeText || '')}</td></tr>`).join('') + '</tbody></table>';
+      `<td>${escapeHtml(i.msg || i.changeText || '')}</td></tr>`).join('') + '</tbody></table>';
+  const adds = Object.entries(p.additions || {}).map(([k, vs]) => `${LIST_LABELS[k]}: ${vs.join(', ')}`);
+  const undecided = p.unknowns.filter(u => !resolveUnknown(p.resolutions[u.key], u)).length;
   h += `<div class="row-actions">` +
-    `<button class="btn btn-primary btn-sm" onclick="confirmUpload()" ${bad.length || p.errors.length || !changes.length ? 'disabled' : ''}>` +
+    `<button class="btn btn-primary btn-sm" onclick="confirmUpload()" ${bad.length || waiting.length || p.errors.length || !changes.length ? 'disabled' : ''}>` +
     `Save ${changes.length} change${changes.length === 1 ? '' : 's'}</button>` +
-    `<button class="btn btn-secondary btn-sm" onclick="cancelUpload()">Cancel</button>` +
-    `<span class="status">${bad.length ? `Fix the ${bad.length} error row(s) in the file and upload it again.` : !changes.length ? 'Nothing to change.' : 'Accounts not in the file stay as they are.'}</span></div>`;
+    `<button class="btn btn-secondary btn-sm" onclick="cancelUpload()">${p.unknowns.length ? 'Reject upload' : 'Cancel'}</button>` +
+    `<span class="status">${bad.length ? `Fix the ${bad.length} error row(s) in the file and upload it again.`
+      : undecided ? `Decide about ${undecided} value${undecided === 1 ? '' : 's'} above, or reject the upload.`
+      : !changes.length ? 'Nothing to change.'
+      : 'Accounts not in the file stay as they are.' + (adds.length ? ' Saving also adds to the lists — ' + escapeHtml(adds.join('; ')) + '.' : '')}</span></div>`;
   box.innerHTML = h;
 }
 function cancelUpload() {
@@ -1681,18 +1804,26 @@ async function confirmUpload() {
   const updates = {};
   changes.forEach(i => {
     const id = i.id || newId();
-    updates[id] = cleanAccount({ ...i.record, order: i.id ? i.record.order : nextOrder++ });
+    updates['assets/' + id] = cleanAccount({ ...i.record, order: i.id ? i.record.order : nextOrder++ });
+  });
+  // Accepted / typed new labels join their pick lists, in the same write as the accounts.
+  const lists = {};
+  Object.entries(p.additions || {}).forEach(([k, vs]) => {
+    lists[k] = (customOptions[k] || []).concat(vs);
+    updates['options/' + k] = lists[k];
   });
   try {
     const before = new Set(sortedAccounts().map(a => a.ticker).filter(Boolean));
-    await db.ref('household/assets').update(updates);
+    await db.ref('household').update(updates);
+    if (Object.keys(lists).length) rebuildLists({ ...customOptions, ...lists });
     await db.ref('household/uploads').push({
       at: firebase.database.ServerValue.TIMESTAMP, by: currentUser.email, source: 'file', filename: p.filename, changed: changes.length,
+      ...(Object.keys(lists).length ? { added: p.additions } : {}),
     });
     cancelUpload();
     renderHoldings();
     alert(`Saved ${changes.length} change(s).`);
-    if (Object.values(updates).some(a => a.ticker && !before.has(a.ticker))) refreshPrices(true);
+    if (Object.entries(updates).some(([k, a]) => k.startsWith('assets/') && a.ticker && !before.has(a.ticker))) refreshPrices(true);
   } catch (e) {
     alert('Could not save the upload: ' + e.message);
   }
