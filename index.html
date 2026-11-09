@@ -187,7 +187,8 @@
   .tgt-warn { font-size: 12px; font-weight: 600; }
   table.alloc tr.empty-cls td { color: #999; }
   /* Δ to Target: a narrow bar area on the left, a smaller % on the right, header centered over both. */
-  table.alloc td.dcell { min-width: 96px; font-size: 12px; }
+  table.alloc td.dcell, table.alloc tr.class-row td.dcell { min-width: 96px; font-size: 12px; font-weight: 400; }
+  table.alloc td.dcell.dneg { color: var(--red); }
   table.alloc th.dhead { text-align: center; }
   .eq-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
   .eq-tag .flag { display: block; border: 1px solid #ccc; border-radius: 1px; }
@@ -446,7 +447,7 @@
               accounts naming a selected beneficiary count in full, and "% of total assets" is a share of everything the selected account
               owners hold, so the Total can be under 100%. "Δ to Target Allocation" is the actual % of total assets minus the
               target from Setup → Target Asset Allocation (negative = under target; hover to see both; bars go left of the
-              gray axis in red when under target, right of it in green when over). Equities and Private equity (which includes Early-stage) each have one target, and a class with a
+              gray axis in red when under target, right of it in green when over). Equities and Private capital (Private equity + Venture) each have one target, and a class with a
               target but no holdings is shown in gray.
             </p>
           </div>
@@ -877,7 +878,7 @@ function normTicker(t) { return String(t || '').trim().toUpperCase().replace(/\.
 // Asset classes, in display/sort order. Stored on each holding as assetClass (the label itself).
 const ASSET_CLASSES = [
   'Equity US Broad', 'Equity US Large-cap', 'Equity US Small-cap', 'Equity EU Large-cap',
-  'Real estate', 'Absolute return', 'Crypto', 'Private equity', 'Early-stage', 'Bonds', 'Cash',
+  'Real estate', 'Absolute return', 'Crypto', 'Private equity', 'Venture', 'Bonds', 'Cash',
 ];
 // Account owners, in display order. Stored on each holding as owner (the label itself).
 const ACCOUNT_OWNERS = ['Dan & Alison', 'Dan', 'Alison', 'AS Family Trust', 'DS Family Trust', 'Lauren', 'Trust for Lauren', 'Trust for Jodie'];
@@ -1096,14 +1097,26 @@ const pfExpanded = new Set();   // keys 'L:<class>' (funds) / 'I:<class>' (illiq
    it each row is tagged with a small flag and its size: "Equity US Large-cap" → 🇺🇸 Large.
    Flags are inline SVG: Windows doesn't draw flag emoji. */
 const EQUITIES = 'Equities';
+const PRIVATE_CAPITAL = 'Private capital';
 function isEquityClass(c) { return EQUITY_CLASSES.includes(c) || /^Equity\b/.test(c || ''); }
-function displayClass(c) { return isEquityClass(c) ? EQUITIES : c; }
-// Position of a display class in list order (Equities where the first equity class is).
+function isPrivateCapitalClass(c) { return c === 'Private equity' || c === 'Venture'; }
+// Asset classes shown together as one collapsible group on every slide (and given one target):
+// Equities (every equity class) and Private capital (Private equity + Venture).
+const CLASS_GROUPS = [
+  { label: EQUITIES, has: isEquityClass, note: 'all equity classes' },
+  { label: PRIVATE_CAPITAL, has: isPrivateCapitalClass, note: 'Private equity + Venture' },
+];
+function displayClass(c) { const g = CLASS_GROUPS.find(g => g.has(c)); return g ? g.label : c; }
+function isClassGroup(label) { return CLASS_GROUPS.some(g => g.label === label); }
+// Position of a display class in list order (a group sits where its first class is).
 function classPos(c) {
-  if (c === EQUITIES) return 0;
-  const i = ASSET_CLASSES.indexOf(c);
+  const g = CLASS_GROUPS.find(g => g.label === c);
+  const i = g ? ASSET_CLASSES.findIndex(g.has) : ASSET_CLASSES.indexOf(c);
   return i < 0 ? ASSET_CLASSES.length : i;
 }
+// Asset classes that were renamed: old stored or uploaded value → current label.
+const CLASS_RENAMES = { 'early-stage': 'Venture' };
+function renameClass(v) { return CLASS_RENAMES[String(v || '').trim().toLowerCase()] || v; }
 const FLAG_SVG = {
   US: '<svg class="flag" viewBox="0 0 19 10" width="19" height="10" aria-label="US"><rect width="19" height="10" fill="#B22234"/>' +
       '<path d="M0 1.15h19M0 2.7h19M0 4.23h19M0 5.77h19M0 7.3h19M0 8.85h19" stroke="#fff" stroke-width=".77"/>' +
@@ -1114,8 +1127,10 @@ const FLAG_SVG = {
         return `<circle cx="${(7.5 + 3.3 * Math.sin(t)).toFixed(2)}" cy="${(5 - 3.3 * Math.cos(t)).toFixed(2)}" r=".55" fill="#FC0"/>`;
       }).join('') + '</svg>',
 };
-// The tag shown in an equity row's first column: flag + Broad / Large / Small.
+// The tag shown in a grouped row's first column: for equities, flag + Broad / Large / Small; for
+// Private capital, its sub class (Private equity / Venture).
 function equityTagHtml(c) {
+  if (isPrivateCapitalClass(c)) return `<span class="eq-tag" title="${escapeHtml(c)}"><span>${escapeHtml(c)}</span></span>`;
   if (!isEquityClass(c)) return '';
   const region = /\bEU\b/.test(c) ? 'EU' : /\bUS\b/.test(c) ? 'US' : '';
   const size = /broad/i.test(c) ? 'Broad' : /large/i.test(c) ? 'Large' : /small/i.test(c) ? 'Small'
@@ -1140,11 +1155,11 @@ function classGroups(rows, side, liqValue, allValue) {
     };
   });
   const pos = g => classPos(g.cls);
-  // Inside Equities, rows go in equity-class order (Broad, Large, Small, EU) unless a column is sorted.
-  const eq = groups.find(g => g.cls === EQUITIES);
-  if (eq && (sortKey === 'order' || sortKey === 'assetClass')) {
+  // Inside a group (Equities, Private capital), rows go in class order (Broad, Large, Small, EU;
+  // Private equity, Venture) unless a column is sorted.
+  if (sortKey === 'order' || sortKey === 'assetClass') groups.filter(g => isClassGroup(g.cls)).forEach(eq => {
     eq.rows = [...eq.rows].sort((a, b) => classPos(a.assetClass) - classPos(b.assetClass) || (a.order ?? 0) - (b.order ?? 0));
-  }
+  });
   const numericKeys = side === 'L' ? ['tr5y', 'ytd', 'value', 'pctLiq'] : ['value'];
   groups.sort((a, b) => {
     if (!a.cls || !b.cls) return !a.cls && !b.cls ? 0 : !a.cls ? 1 : -1;   // Unclassified last
@@ -1345,25 +1360,23 @@ function allocationRows(pf, keyOf, order) {
 }
 
 /* ── Slide 3 rows and targets ──
-   Two rows combine several asset classes and expand to show them: Equities (every equity class)
-   and Private equity (Private equity + Early-stage). The target allocation is set per row
-   (Setup → Target Asset Allocation), so those two have one target each. */
-const ALLOC_GROUPS = [
-  { label: EQUITIES, has: c => isEquityClass(c), note: 'all equity classes' },
-  { label: 'Private equity', has: c => c === 'Private equity' || c === 'Early-stage', note: 'includes Early-stage' },
-];
-function allocGroupOf(c) { const g = ALLOC_GROUPS.find(g => g.has(c)); return g ? g.label : c; }
+   The group rows (CLASS_GROUPS: Equities, Private capital) expand to show their classes. The
+   target allocation is set per row (Setup → Target Asset Allocation), so each group has one target. */
+const ALLOC_GROUPS = CLASS_GROUPS;
+const allocGroupOf = displayClass;
 // The slide 3 rows in list order: one per asset class, the grouped classes as their group.
 function targetClasses() { return [...new Set(ASSET_CLASSES.map(allocGroupOf))]; }
 // From the household's target sheet ("Our house" + private real estate = Real estate 14%).
-const DEFAULT_TARGETS = { [EQUITIES]: .44, 'Real estate': .14, 'Absolute return': .15, Crypto: 0, 'Private equity': .15, Bonds: .10, Cash: .02 };
+const DEFAULT_TARGETS = { [EQUITIES]: .44, 'Real estate': .14, 'Absolute return': .15, Crypto: 0, [PRIVATE_CAPITAL]: .15, Bonds: .10, Cash: .02 };
+// Target rows saved under an old name: the Private equity group became Private capital.
+const TARGET_RENAMES = { 'Private equity': PRIVATE_CAPITAL };
 // household/targetAllocation: { rows: [{ cls, pct (fraction) }], updatedAt, updatedBy }, or null
 // until an Admin saves (then the defaults apply).
 let targetAlloc = null, targetsDirty = false;
 function currentTargets() {
   if (!targetAlloc || !targetAlloc.rows) return { ...DEFAULT_TARGETS };
   const m = {};
-  Object.values(targetAlloc.rows).forEach(r => { if (r && r.cls) m[r.cls] = Number(r.pct) || 0; });
+  Object.values(targetAlloc.rows).forEach(r => { if (r && r.cls) m[TARGET_RENAMES[r.cls] || r.cls] = Number(r.pct) || 0; });
   return m;
 }
 
@@ -1451,7 +1464,7 @@ function allocationTableHtml({ rows, total, sub = {} }, table, opts = {}) {
   const retCell = (x, assumed, scale) => `<td class="${assumed ? 'assumed' : ''}"${scale(x) ? ` style="background:${scale(x)}"` : ''}>${fmtPct(x)}</td>`;
   const pctCell = r => `<td${opts.bars ? ` style="${dataBar(r.pctAll, maxPct)}"` : ''}>${fmtPct(r.pctAll, 0)}</td>`;
   const deltaTitle = r => typeof r.delta === 'number' ? ` title="Actual ${fmtPct(r.pctAll, 1)} − target ${fmtTarget(r.target)}"` : '';
-  const tgtCell = r => `<td class="dcell" style="${deltaBar(r.delta, maxNeg, maxPos)}"${deltaTitle(r)}>${fmtDelta(r.delta)}</td>`;
+  const tgtCell = r => `<td class="dcell${r.delta < -5e-4 ? ' dneg' : ''}" style="${deltaBar(r.delta, maxNeg, maxPos)}"${deltaTitle(r)}>${fmtDelta(r.delta)}</td>`;
   const row = (r, cls) => `<tr class="${cls}${cls && opts.plainTotal ? ' plain' : ''}${r.empty ? ' empty-cls' : ''}"><td class="l">${escapeHtml(cls ? r.label : label(r.label))}</td><td>${fmtNum(r.value, 0)}</td>` +
     (cls ? `<td>${fmtPct(r.pctAll, 0)}</td><td${deltaTitle(r)}>${fmtDelta(r.delta)}</td><td>${fmtPct(r.ytd)}</td><td>${fmtPct(r.tr5y)}</td>`
          : pctCell(r) + tgtCell(r) + retCell(r.ytd, r.ytdAssumed, cYtd) + retCell(r.tr5y, r.tr5yAssumed, c5)) + '</tr>';
@@ -1519,7 +1532,8 @@ function loadHoldFilters() {
   const pick = v => Array.isArray(v) ? v.map(String) : null;
   try {
     const v = JSON.parse(localStorage.getItem(HOLD_FILTERS_KEY) || '{}');
-    return { ben: pick(v.ben), owner: pick(v.owner), cls: pick(v.cls) };
+    const cls = pick(v.cls);
+    return { ben: pick(v.ben), owner: pick(v.owner), cls: cls && [...new Set(cls.map(renameClass))] };
   } catch (e) { return { ben: null, owner: null, cls: null }; }
 }
 function saveHoldFilters() {
@@ -1583,7 +1597,7 @@ function computeOwnerSlide(pf) {
   const groupKeys = [...new Set(opts.cls.map(displayClass))];
   const groups = groupKeys.map(cls => {
     const rows = shown.filter(a => displayClass(a.cls) === cls)
-      .sort((x, y) => (cls === EQUITIES ? classPos(x.cls) - classPos(y.cls) : 0) || x.order - y.order);
+      .sort((x, y) => (isClassGroup(cls) ? classPos(x.cls) - classPos(y.cls) : 0) || x.order - y.order);
     const value = rows.reduce((s, a) => s + (a.shownValue || 0), 0);
     return { cls, rows, value, pct: base ? value / base : null, open: ownerExpanded.has(cls) };
   }).filter(g => g.rows.length);
@@ -1950,6 +1964,7 @@ function normalizeAccount(a) {
   if (typeof a.assumedReturn === 'number') out.assumedReturn = a.assumedReturn;
   PICK_FIELDS.forEach(f => { if (a[f]) out[f] = a[f]; });
   if (out.owner) out.owner = renameOwner(out.owner);
+  if (out.assetClass) out.assetClass = renameClass(out.assetClass);
   return out;
 }
 
@@ -1969,7 +1984,7 @@ function accountValueK(a) {
 let converting = false, conversionWarned = false;
 async function convertAccountsIfNeeded() {
   if (!currentUser || !currentUser.isAdmin || converting) return;
-  const old = Object.values(assets).filter(a => a && (a.kind || renameOwner(a.owner) !== a.owner));
+  const old = Object.values(assets).filter(a => a && (a.kind || renameOwner(a.owner) !== a.owner || renameClass(a.assetClass) !== a.assetClass));
   if (!old.length) return;
   converting = true;
   try {
@@ -2464,7 +2479,7 @@ function buildUploadPlan(rawRows, current, resolutions = {}) {
     const pending = [];
     for (const [f, list] of Object.entries(lists)) {
       const raw = str(C[f]);
-      const val = f === 'owner' ? renameOwner(raw) : raw;
+      const val = f === 'owner' ? renameOwner(raw) : f === 'assetClass' ? renameClass(raw) : raw;
       // Retirement "none" clears it (a blank cell keeps the current value, as everywhere).
       if (f === 'retirement' && /^\[?(none|no|n\/a)\]?$/i.test(val)) { delete next.retirement; continue; }
       let m = matchOption(list, val);
