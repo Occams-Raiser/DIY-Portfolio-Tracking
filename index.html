@@ -186,7 +186,9 @@
   table.tax-rates td.tgt-off { color: var(--red); }
   .tgt-warn { font-size: 12px; font-weight: 600; }
   table.alloc tr.empty-cls td { color: #999; }
-  table.alloc td.dcell { min-width: 150px; }
+  /* Δ to Target: a narrow bar area on the left, a smaller % on the right, header centered over both. */
+  table.alloc td.dcell { min-width: 96px; font-size: 12px; }
+  table.alloc th.dhead { text-align: center; }
   .eq-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
   .eq-tag .flag { display: block; border: 1px solid #ccc; border-radius: 1px; }
 
@@ -1040,7 +1042,7 @@ const BAR_COLORS = { blue: ['#5B9BD5', '#C9DEF3'], red: ['#E06666', '#F6CFCF'], 
 // proportion to the column's largest under / over values; negatives grow left of it in red,
 // positives right of it in pale green, each solid at the axis and fading outward.
 // The bars use the left DELTA_BAR_AREA of the cell, so the number on the right stays clear.
-const DELTA_BAR_AREA = 58;
+const DELTA_BAR_AREA = 46;
 function deltaBar(x, maxNeg, maxPos) {
   if (typeof x !== 'number' || !isFinite(x)) return '';
   const span = maxNeg + maxPos;
@@ -1467,12 +1469,12 @@ function allocationTableHtml({ rows, total, sub = {} }, table, opts = {}) {
     });
     return h;
   };
-  const th = (key, label) => {
+  const th = (key, label, cls = '') => {
     const on = s.key === key;
-    return `<th class="sortable" onclick="setAllocSort('${table}','${key}')">${label}` +
+    return `<th class="sortable ${cls}" onclick="setAllocSort('${table}','${key}')">${label}` +
       `<span class="sort-arrow" style="opacity:${on ? 1 : .55}">${on ? (s.dir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>`;
   };
-  return `<thead><tr><th class="l">${escapeHtml(opts.firstCol || 'Asset class')}</th>` + th('value', 'Current value<br>$K') + '<th>% of total<br>assets</th>' + th('delta', 'Δ to Target<br>Allocation') +
+  return `<thead><tr><th class="l">${escapeHtml(opts.firstCol || 'Asset class')}</th>` + th('value', 'Current value<br>$K') + '<th>% of total<br>assets</th>' + th('delta', 'Δ to Target<br>Allocation', 'dhead') +
     th('ytd', 'YTD<br>tot ret') + th('tr5y', '5-year<br>tot ret') + '</tr></thead><tbody>' +
     sortAllocRows(rows, s).map(r => (sub[r.label] || []).length ? groupRow(r, sub[r.label]) : row(r, '')).join('') + row(total, 'total') + '</tbody>';
 }
