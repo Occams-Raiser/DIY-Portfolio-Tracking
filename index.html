@@ -181,6 +181,11 @@
   table.tax-rates th { text-align: left; font-size: 13px; color: #555; padding: 6px 10px; border-bottom: 1px solid #ccc; }
   table.tax-rates td { padding: 6px 10px; border-bottom: 1px solid #f0f0f0; }
   table.tax-rates input { width: 120px; text-align: right; }
+  table.tax-rates tr.tgt-total td { border-top: 1px solid #333; border-bottom: none; }
+  table.tax-rates tr.tgt-total td.num { text-align: right; padding-right: 20px; }
+  table.tax-rates td.tgt-off { color: var(--red); }
+  .tgt-warn { font-size: 12px; font-weight: 600; }
+  table.alloc tr.empty-cls td { color: #999; }
   .eq-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
   .eq-tag .flag { display: block; border: 1px solid #ccc; border-radius: 1px; }
 
@@ -253,6 +258,12 @@
   table.alloc tr.total td { font-weight: 700; border-top: 1px solid #333; border-bottom: none; }
   table.alloc tr.total.plain td { font-weight: 400; }
   table.alloc td.assumed { font-style: italic; color: #555; }
+  table.alloc tr.class-row { cursor: pointer; }
+  table.alloc tr.class-row td { font-weight: 600; }
+  table.alloc tr.class-row .caret { display: inline-block; width: 16px; color: #888; }
+  table.alloc tr.class-row .cnt { font-weight: 400; color: #999; }
+  table.alloc td.sub { padding-left: 34px; font-size: 13px; color: #444; }
+  table.alloc td.sub .flag { display: inline-block; vertical-align: -1px; margin-right: 6px; border: 1px solid #ccc; border-radius: 1px; }
   /* Illiquid assumed returns: italic, so they read as assumptions on top of the color scale. */
   table.pf tr.illiquid td.assumed { font-style: italic; color: #555; }
   table.pf td.neg { color: var(--red); }
@@ -430,7 +441,10 @@
               the 5-year column. Funds without 5 years of history are left out of the 5-year average. Holdings with no asset
               class set are grouped under "Unclassified" — set the class on the Setup tab. The filters are shared with slide 2:
               accounts naming a selected beneficiary count in full, and "% of total assets" is a share of everything the selected account
-              owners hold, so the Total can be under 100%.
+              owners hold, so the Total can be under 100%. "Δ to Target Allocation" is the actual % of total assets minus the
+              target from Setup → Target Asset Allocation (negative = under target; hover to see both; red bars show how far
+              off each class is, either way). Equities and Private equity (which includes Early-stage) each have one target, and a class with a
+              target but no holdings is shown in gray.
             </p>
           </div>
         </div>
@@ -496,6 +510,23 @@
           <button class="btn btn-primary" id="btn-save" onclick="saveHoldings()">Save changes</button>
           <button class="btn btn-secondary" onclick="discardEdits()">Discard changes</button>
           <span class="status" id="save-status"></span>
+        </div>
+      </div>
+
+      <h3 style="cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('setup-targets')">
+        <span id="section-arrow-setup-targets" style="display:inline-block;width:16px">▸</span>Target Asset Allocation
+      </h3>
+      <div id="section-body-setup-targets" class="hidden">
+        <p class="desc">
+          Your target share of total assets for each asset class, shown on Portfolio slide 3. Enter percentages
+          (e.g. <code>44</code> for 44%); they must add up to 100% before you can save.
+          <span id="targets-readonly-note" class="hidden">Only Admins can change these.</span>
+        </p>
+        <table class="ed tax-rates" id="targets-table"></table>
+        <div class="row-actions admin-only">
+          <button class="btn btn-primary btn-sm" id="btn-save-targets" onclick="saveTargets()">Save targets</button>
+          <button class="btn btn-secondary btn-sm" onclick="targetsDirty = false; renderTargets()">Discard changes</button>
+          <span class="status" id="targets-status"></span>
         </div>
       </div>
 
@@ -800,7 +831,8 @@ function startApp() {
     listeners.push(() => ref.off('value', cb));
   };
   sub('household/taxRates', v => { taxRates = v || {}; if (!taxDirty) renderTaxRates(); renderTaxLiabilities(); });
-  sub('household/options', v => { rebuildLists(v); renderPortfolio(); if (!holdingsDirty) renderHoldings(); });
+  sub('household/targetAllocation', v => { targetAlloc = v || null; if (!targetsDirty) renderTargets(); if (lastPf) renderAllocation(lastPf); });
+  sub('household/options', v => { rebuildLists(v); renderPortfolio(); if (!holdingsDirty) renderHoldings(); if (!targetsDirty) renderTargets(); });
   sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); convertAccountsIfNeeded(); });
   sub('prices', v => { prices = v || {}; renderPortfolio(); });
   sub('priceStatus', v => { priceStatus = v; renderPortfolio(); });
@@ -1001,10 +1033,13 @@ function colorScale(values) {
     return `rgb(${rgb.join(',')})`;
   };
 }
-function dataBar(x, max) {
+// Excel-style data bar; blue by default, red for slide 3's Target allocation column.
+const BAR_COLORS = { blue: ['#5B9BD5', '#C9DEF3'], red: ['#E06666', '#F6CFCF'] };
+function dataBar(x, max, color = 'blue') {
   if (typeof x !== 'number' || !max || x <= 0) return '';
   const w = Math.max(0, Math.min(100, x / max * 100)).toFixed(1);
-  return `background:linear-gradient(90deg,#5B9BD5 0%,#C9DEF3 ${w}%,transparent ${w}%);`;
+  const [a, b] = BAR_COLORS[color];
+  return `background:linear-gradient(90deg,${a} 0%,${b} ${w}%,transparent ${w}%);`;
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -1286,12 +1321,69 @@ function allocationRows(pf, keyOf, order) {
   return { rows: keys.map(k => summarize(k, items.filter(i => i.key === k))), total: summarize('Total', items) };
 }
 
+/* ── Slide 3 rows and targets ──
+   Two rows combine several asset classes and expand to show them: Equities (every equity class)
+   and Private equity (Private equity + Early-stage). The target allocation is set per row
+   (Setup → Target Asset Allocation), so those two have one target each. */
+const ALLOC_GROUPS = [
+  { label: EQUITIES, has: c => isEquityClass(c), note: 'all equity classes' },
+  { label: 'Private equity', has: c => c === 'Private equity' || c === 'Early-stage', note: 'includes Early-stage' },
+];
+function allocGroupOf(c) { const g = ALLOC_GROUPS.find(g => g.has(c)); return g ? g.label : c; }
+// The slide 3 rows in list order: one per asset class, the grouped classes as their group.
+function targetClasses() { return [...new Set(ASSET_CLASSES.map(allocGroupOf))]; }
+// From the household's target sheet ("Our house" + private real estate = Real estate 14%).
+const DEFAULT_TARGETS = { [EQUITIES]: .44, 'Real estate': .14, 'Absolute return': .15, Crypto: 0, 'Private equity': .15, Bonds: .10, Cash: .02 };
+// household/targetAllocation: { rows: [{ cls, pct (fraction) }], updatedAt, updatedBy }, or null
+// until an Admin saves (then the defaults apply).
+let targetAlloc = null, targetsDirty = false;
+function currentTargets() {
+  if (!targetAlloc || !targetAlloc.rows) return { ...DEFAULT_TARGETS };
+  const m = {};
+  Object.values(targetAlloc.rows).forEach(r => { if (r && r.cls) m[r.cls] = Number(r.pct) || 0; });
+  return m;
+}
+
 function computeAllocation(pf) {
   const UNCL = 'Unclassified';
-  const byClass = allocationRows(pf,
-    c => !c ? UNCL : EQUITY_CLASSES.includes(c) ? 'Equities' : c,
-    ['Equities', ...ASSET_CLASSES.filter(c => !EQUITY_CLASSES.includes(c)), UNCL]);
+  const order = [...targetClasses(), UNCL];
+  const byClass = allocationRows(pf, c => !c ? UNCL : allocGroupOf(c), order);
+  // The classes inside each group row, shown when it's expanded.
+  byClass.sub = {};
+  ALLOC_GROUPS.forEach(g => { byClass.sub[g.label] = allocationRows(pf, c => g.has(c) ? c : null, ASSET_CLASSES.filter(g.has)).rows; });
+  // Target column. A class with a target but no holdings (in the filter) still gets a row.
+  const tg = currentTargets();
+  const clsOk = label => ASSET_CLASSES.some(c => allocGroupOf(c) === label && isSelected('cls', c));
+  Object.entries(tg).forEach(([label, pct]) => {
+    if (pct > 0 && clsOk(label) && !byClass.rows.some(r => r.label === label)) {
+      byClass.rows.push({ label, value: 0, pctAll: 0, ytd: null, tr5y: null, empty: true });
+    }
+  });
+  const pos = l => { const i = order.indexOf(l); return i < 0 ? order.length - 1.5 : i; };
+  byClass.rows.sort((a, b) => pos(a.label) - pos(b.label));
+  // Δ to target = actual % of total assets − target (negative = under target).
+  const delta = r => typeof r.target === 'number' && typeof r.pctAll === 'number' ? r.pctAll - r.target : null;
+  byClass.rows.forEach(r => { r.target = typeof tg[r.label] === 'number' ? tg[r.label] : null; r.delta = delta(r); });
+  byClass.total.target = byClass.rows.reduce((s, r) => s + (r.target || 0), 0);
+  byClass.total.delta = delta(byClass.total);
   return { byClass };
+}
+const allocOpen = new Set();   // slide 3 group rows the viewer has opened (all start collapsed)
+function toggleAllocGroup(label) {
+  if (allocOpen.has(label)) allocOpen.delete(label); else allocOpen.add(label);
+  if (lastPf) renderAllocation(lastPf);
+  fitPresentZoom();
+}
+// Δ to target, signed to one decimal: +4.0% over target, −4.0% under; 0.0% on target.
+function fmtDelta(x) {
+  if (typeof x !== 'number' || !isFinite(x)) return '';
+  const v = Math.round(x * 1000) / 10;
+  return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '%';
+}
+// Targets show whole percents, or one decimal when that's how they were set (7.5%).
+function fmtTarget(x) {
+  if (typeof x !== 'number') return '';
+  return fmtPct(x, Math.abs(x * 100 - Math.round(x * 100)) < 1e-6 ? 0 : 1);
 }
 
 // The allocation table sorts on its own (GTIA style guide §10: one key/dir pair per table).
@@ -1318,26 +1410,49 @@ function sortAllocRows(rows, s) {
 // opts.bars: Excel-style data bars (blue → white gradient, scaled to the largest row) on % of total assets.
 // opts.firstCol: first column's header. opts.label: turns a row's label into its displayed name.
 // opts.plainTotal: total row in normal weight instead of bold.
-function allocationTableHtml({ rows, total }, table, opts = {}) {
+function allocationTableHtml({ rows, total, sub = {} }, table, opts = {}) {
   const label = opts.label || (s => s);
   if (!rows.length) return '<tbody><tr><td class="l" style="padding:12px">No holdings in these asset classes yet.</td></tr></tbody>';
   const s = allocSort[table];
-  const cYtd = colorScale(rows.map(r => r.ytd)), c5 = colorScale(rows.map(r => r.tr5y));
+  // One return color scale per column across every asset class row, the classes inside the
+  // group rows included (whether or not they're expanded, so colors don't shift on toggle).
+  const allParts = Object.values(sub).flat();
+  const scaled = rows.concat(allParts);
+  const cYtd = colorScale(scaled.map(r => r.ytd)), c5 = colorScale(scaled.map(r => r.tr5y));
+  // % of total assets (blue) and Target allocation (red) share one bar scale, so they compare.
   const maxPct = Math.max(0, ...rows.map(r => r.pctAll || 0));
+  // Δ to target: red bars sized by how far each row is from its target, over or under.
+  const maxDelta = Math.max(0, ...rows.map(r => Math.abs(r.delta || 0)));
   // Every class is on one color scale, assumed-only returns included (shown in italics), as on slide 1.
   const retCell = (x, assumed, scale) => `<td class="${assumed ? 'assumed' : ''}"${scale(x) ? ` style="background:${scale(x)}"` : ''}>${fmtPct(x)}</td>`;
   const pctCell = r => `<td${opts.bars ? ` style="${dataBar(r.pctAll, maxPct)}"` : ''}>${fmtPct(r.pctAll, 0)}</td>`;
-  const row = (r, cls) => `<tr class="${cls}${cls && opts.plainTotal ? ' plain' : ''}"><td class="l">${escapeHtml(cls ? r.label : label(r.label))}</td><td>${fmtNum(r.value, 0)}</td>` +
-    (cls ? `<td>${fmtPct(r.pctAll, 0)}</td><td>${fmtPct(r.ytd)}</td><td>${fmtPct(r.tr5y)}</td>`
-         : pctCell(r) + retCell(r.ytd, r.ytdAssumed, cYtd) + retCell(r.tr5y, r.tr5yAssumed, c5)) + '</tr>';
+  const deltaTitle = r => typeof r.delta === 'number' ? ` title="Actual ${fmtPct(r.pctAll, 1)} − target ${fmtTarget(r.target)}"` : '';
+  const tgtCell = r => `<td style="${typeof r.delta === 'number' ? dataBar(Math.abs(r.delta), maxDelta, 'red') : ''}"${deltaTitle(r)}>${fmtDelta(r.delta)}</td>`;
+  const row = (r, cls) => `<tr class="${cls}${cls && opts.plainTotal ? ' plain' : ''}${r.empty ? ' empty-cls' : ''}"><td class="l">${escapeHtml(cls ? r.label : label(r.label))}</td><td>${fmtNum(r.value, 0)}</td>` +
+    (cls ? `<td>${fmtPct(r.pctAll, 0)}</td><td${deltaTitle(r)}>${fmtDelta(r.delta)}</td><td>${fmtPct(r.ytd)}</td><td>${fmtPct(r.tr5y)}</td>`
+         : pctCell(r) + tgtCell(r) + retCell(r.ytd, r.ytdAssumed, cYtd) + retCell(r.tr5y, r.tr5yAssumed, c5)) + '</tr>';
+  // A group row (Equities, Private equity): ▸/▾ and a count; when open, its classes follow,
+  // indented, with no target of their own.
+  const groupRow = (r, parts) => {
+    const open = allocOpen.has(r.label);
+    let h = `<tr class="class-row" onclick="toggleAllocGroup(this.dataset.g)" data-g="${escapeHtml(r.label)}" title="${open ? 'Collapse' : 'Expand'}">` +
+      `<td class="l"><span class="caret">${open ? '▾' : '▸'}</span>${escapeHtml(label(r.label))} <span class="cnt">(${parts.length})</span></td>` +
+      `<td>${fmtNum(r.value, 0)}</td>` + pctCell(r) + tgtCell(r) + retCell(r.ytd, r.ytdAssumed, cYtd) + retCell(r.tr5y, r.tr5yAssumed, c5) + '</tr>';
+    if (open) sortAllocRows(parts, s).forEach(p => {
+      const region = /\bEU\b/.test(p.label) ? 'EU' : /\bUS\b/.test(p.label) ? 'US' : '';
+      h += `<tr class="in-class"><td class="l sub">${FLAG_SVG[region] || ''}${escapeHtml(p.label)}</td><td>${fmtNum(p.value, 0)}</td>` +
+        pctCell(p) + '<td></td>' + retCell(p.ytd, p.ytdAssumed, cYtd) + retCell(p.tr5y, p.tr5yAssumed, c5) + '</tr>';
+    });
+    return h;
+  };
   const th = (key, label) => {
     const on = s.key === key;
     return `<th class="sortable" onclick="setAllocSort('${table}','${key}')">${label}` +
       `<span class="sort-arrow" style="opacity:${on ? 1 : .55}">${on ? (s.dir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>`;
   };
-  return `<thead><tr><th class="l">${escapeHtml(opts.firstCol || 'Asset class')}</th>` + th('value', 'Current value<br>$K') + '<th>% of total<br>assets</th>' +
+  return `<thead><tr><th class="l">${escapeHtml(opts.firstCol || 'Asset class')}</th>` + th('value', 'Current value<br>$K') + '<th>% of total<br>assets</th>' + th('delta', 'Δ to Target<br>Allocation') +
     th('ytd', 'YTD<br>tot ret') + th('tr5y', '5-year<br>tot ret') + '</tr></thead><tbody>' +
-    sortAllocRows(rows, s).map(r => row(r, '')).join('') + row(total, 'total') + '</tbody>';
+    sortAllocRows(rows, s).map(r => (sub[r.label] || []).length ? groupRow(r, sub[r.label]) : row(r, '')).join('') + row(total, 'total') + '</tbody>';
 }
 
 function renderAllocation(pf) {
@@ -2571,6 +2686,67 @@ async function saveTaxRates() {
     alert('Could not save the tax rates: ' + e.message + '\n\nIf this says "permission denied", publish the updated database rules (see SETUP.md).');
   } finally {
     btn.disabled = false;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   SETUP TAB — Target Asset Allocation (one row per slide 3 row; see ALLOC_GROUPS)
+   Saved to household/targetAllocation. The targets must add up to 100% before Save is allowed.
+   Only Admins can save (the database rules check it too).
+══════════════════════════════════════════════════════════════════════ */
+function renderTargets() {
+  const tbl = document.getElementById('targets-table');
+  if (!tbl || !currentUser) return;
+  const editable = isAdminUser();
+  document.getElementById('targets-readonly-note').classList.toggle('hidden', editable);
+  const tg = currentTargets();
+  tbl.innerHTML = '<thead><tr><th>Asset class</th><th style="text-align:right">Target (%)</th></tr></thead><tbody>' +
+    targetClasses().map(cls => {
+      const g = ALLOC_GROUPS.find(x => x.label === cls);
+      const v = typeof tg[cls] === 'number' ? +(tg[cls] * 100).toFixed(4) : 0;
+      return `<tr><td>${escapeHtml(cls)}${g ? ` <span class="muted" style="font-size:12px">(${g.note})</span>` : ''}</td>` +
+        `<td class="num" style="width:150px"><input type="number" step="any" min="0" max="100" class="f-target" ` +
+        `data-cls="${escapeHtml(cls)}" value="${v}"${editable ? '' : ' disabled'} oninput="targetsDirty = true; updateTargetTotal()"></td></tr>`;
+    }).join('') +
+    '<tr class="tgt-total"><td><strong>Total</strong></td><td class="num" id="targets-total"></td></tr></tbody>';
+  updateTargetTotal();
+  document.getElementById('targets-status').textContent = targetAlloc && targetAlloc.updatedAt
+    ? `Last saved ${fmtDateTime(targetAlloc.updatedAt)} by ${targetAlloc.updatedBy || 'an Admin'}`
+    : 'Not saved yet. These are the defaults from your target sheet.';
+}
+function readTargets() {
+  const out = [];
+  let bad = false;
+  document.querySelectorAll('#targets-table .f-target').forEach(inp => {
+    const n = inp.value === '' ? 0 : Number(inp.value);
+    if (!isFinite(n) || n < 0 || n > 100) bad = true;
+    out.push({ cls: inp.dataset.cls, pct: n / 100 });
+  });
+  return { rows: out, bad, sum: out.reduce((s, r) => s + (isFinite(r.pct) ? r.pct : 0), 0) };
+}
+function updateTargetTotal() {
+  const { sum, bad } = readTargets();
+  const ok = !bad && Math.abs(sum - 1) < 1e-6;
+  const el = document.getElementById('targets-total');
+  el.innerHTML = `<strong>${+(sum * 100).toFixed(4)}%</strong>` +
+    (ok ? '' : `<div class="tgt-warn">${bad ? 'Each target must be 0–100%' : 'Must add up to 100%'}</div>`);
+  el.classList.toggle('tgt-off', !ok);
+  document.getElementById('btn-save-targets').disabled = !ok;
+  if (targetsDirty) document.getElementById('targets-status').textContent = 'Unsaved changes';
+}
+async function saveTargets() {
+  if (!isAdminUser()) return;
+  const { rows, bad, sum } = readTargets();
+  if (bad || Math.abs(sum - 1) >= 1e-6) return;
+  const btn = document.getElementById('btn-save-targets');
+  btn.disabled = true;
+  try {
+    await db.ref('household/targetAllocation').set({ rows, updatedAt: firebase.database.ServerValue.TIMESTAMP, updatedBy: currentUser.email });
+    targetsDirty = false;
+  } catch (e) {
+    alert('Could not save the targets: ' + e.message + '\n\nIf this says "permission denied", publish the updated database rules (see SETUP.md).');
+  } finally {
+    updateTargetTotal();
   }
 }
 
