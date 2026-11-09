@@ -186,6 +186,7 @@
   table.tax-rates td.tgt-off { color: var(--red); }
   .tgt-warn { font-size: 12px; font-weight: 600; }
   table.alloc tr.empty-cls td { color: #999; }
+  table.alloc td.dcell { min-width: 150px; }
   .eq-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
   .eq-tag .flag { display: block; border: 1px solid #ccc; border-radius: 1px; }
 
@@ -442,8 +443,8 @@
               class set are grouped under "Unclassified" — set the class on the Setup tab. The filters are shared with slide 2:
               accounts naming a selected beneficiary count in full, and "% of total assets" is a share of everything the selected account
               owners hold, so the Total can be under 100%. "Δ to Target Allocation" is the actual % of total assets minus the
-              target from Setup → Target Asset Allocation (negative = under target; hover to see both; red bars show how far
-              off each class is, either way). Equities and Private equity (which includes Early-stage) each have one target, and a class with a
+              target from Setup → Target Asset Allocation (negative = under target; hover to see both; bars go left of the
+              gray axis in red when under target, right of it in green when over). Equities and Private equity (which includes Early-stage) each have one target, and a class with a
               target but no holdings is shown in gray.
             </p>
           </div>
@@ -1033,8 +1034,28 @@ function colorScale(values) {
     return `rgb(${rgb.join(',')})`;
   };
 }
-// Excel-style data bar; blue by default, red for slide 3's Target allocation column.
-const BAR_COLORS = { blue: ['#5B9BD5', '#C9DEF3'], red: ['#E06666', '#F6CFCF'] };
+// Excel-style data bar; blue by default.
+const BAR_COLORS = { blue: ['#5B9BD5', '#C9DEF3'], red: ['#E06666', '#F6CFCF'], green: ['#8CCB98', '#E3F3E6'] };
+// Directional data bar (Excel's negative-value bars): a thin gray axis splits the cell in
+// proportion to the column's largest under / over values; negatives grow left of it in red,
+// positives right of it in pale green, each solid at the axis and fading outward.
+// The bars use the left DELTA_BAR_AREA of the cell, so the number on the right stays clear.
+const DELTA_BAR_AREA = 58;
+function deltaBar(x, maxNeg, maxPos) {
+  if (typeof x !== 'number' || !isFinite(x)) return '';
+  const span = maxNeg + maxPos;
+  if (!span) return '';
+  const a = maxNeg / span * DELTA_BAR_AREA;                                  // axis position, % of the cell width
+  const w = Math.min(DELTA_BAR_AREA, Math.abs(x) / span * DELTA_BAR_AREA);   // bar length
+  const f = n => n.toFixed(1) + '%';
+  const axis = `linear-gradient(#9a9a9a,#9a9a9a) ${f(a)} 0/1px 100% no-repeat`;
+  if (Math.abs(x) < 1e-9) return `background:${axis};`;
+  const [solid, pale] = BAR_COLORS[x < 0 ? 'red' : 'green'];
+  const bar = x < 0
+    ? `linear-gradient(90deg,transparent ${f(a - w)},${pale} ${f(a - w)},${solid} ${f(a)},transparent ${f(a)})`
+    : `linear-gradient(90deg,transparent ${f(a)},${solid} ${f(a)},${pale} ${f(a + w)},transparent ${f(a + w)})`;
+  return `background:${axis},${bar};`;
+}
 function dataBar(x, max, color = 'blue') {
   if (typeof x !== 'number' || !max || x <= 0) return '';
   const w = Math.max(0, Math.min(100, x / max * 100)).toFixed(1);
@@ -1421,13 +1442,14 @@ function allocationTableHtml({ rows, total, sub = {} }, table, opts = {}) {
   const cYtd = colorScale(scaled.map(r => r.ytd)), c5 = colorScale(scaled.map(r => r.tr5y));
   // % of total assets (blue) and Target allocation (red) share one bar scale, so they compare.
   const maxPct = Math.max(0, ...rows.map(r => r.pctAll || 0));
-  // Δ to target: red bars sized by how far each row is from its target, over or under.
-  const maxDelta = Math.max(0, ...rows.map(r => Math.abs(r.delta || 0)));
+  // Δ to target: directional bars around a vertical axis (see deltaBar).
+  const maxNeg = Math.max(0, ...rows.map(r => -(r.delta || 0)));
+  const maxPos = Math.max(0, ...rows.map(r => r.delta || 0));
   // Every class is on one color scale, assumed-only returns included (shown in italics), as on slide 1.
   const retCell = (x, assumed, scale) => `<td class="${assumed ? 'assumed' : ''}"${scale(x) ? ` style="background:${scale(x)}"` : ''}>${fmtPct(x)}</td>`;
   const pctCell = r => `<td${opts.bars ? ` style="${dataBar(r.pctAll, maxPct)}"` : ''}>${fmtPct(r.pctAll, 0)}</td>`;
   const deltaTitle = r => typeof r.delta === 'number' ? ` title="Actual ${fmtPct(r.pctAll, 1)} − target ${fmtTarget(r.target)}"` : '';
-  const tgtCell = r => `<td style="${typeof r.delta === 'number' ? dataBar(Math.abs(r.delta), maxDelta, 'red') : ''}"${deltaTitle(r)}>${fmtDelta(r.delta)}</td>`;
+  const tgtCell = r => `<td class="dcell" style="${deltaBar(r.delta, maxNeg, maxPos)}"${deltaTitle(r)}>${fmtDelta(r.delta)}</td>`;
   const row = (r, cls) => `<tr class="${cls}${cls && opts.plainTotal ? ' plain' : ''}${r.empty ? ' empty-cls' : ''}"><td class="l">${escapeHtml(cls ? r.label : label(r.label))}</td><td>${fmtNum(r.value, 0)}</td>` +
     (cls ? `<td>${fmtPct(r.pctAll, 0)}</td><td${deltaTitle(r)}>${fmtDelta(r.delta)}</td><td>${fmtPct(r.ytd)}</td><td>${fmtPct(r.tr5y)}</td>`
          : pctCell(r) + tgtCell(r) + retCell(r.ytd, r.ytdAssumed, cYtd) + retCell(r.tr5y, r.tr5yAssumed, c5)) + '</tr>';
