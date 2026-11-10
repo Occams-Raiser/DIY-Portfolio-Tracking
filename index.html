@@ -333,6 +333,21 @@
   .btn-link { background: none; border: none; color: var(--yale); cursor: pointer; font-size: 13px; padding: 2px 6px; text-decoration: underline; }
   .btn-link.on { color: #1e6b3a; font-weight: 600; text-decoration: none; }
   td.roi-act { white-space: nowrap; }
+
+  /* ── Setup: Compare with Money ── */
+  label.money-pick { text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer; margin: 4px 0 12px; display: inline-block; }
+  .money-sum { margin: 4px 0 10px; font-size: 13.5px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  table.ed.money-tbl { width: auto; min-width: 640px; margin-bottom: 14px; }
+  table.ed.money-tbl td, table.ed.money-tbl th { padding: 5px 10px; font-size: 13px; vertical-align: middle; }
+  table.ed.money-tbl td.money-accts { min-width: 280px; }
+  table.ed.money-tbl select.money-add { font-size: 12.5px; padding: 3px 6px; width: auto; max-width: 320px; }
+  table.ed.money-tbl tr.money-ignored td { color: #aaa; }
+  table.ed.money-tbl .neg { color: var(--red); font-weight: 600; }
+  .money-chip { display: inline-flex; align-items: center; gap: 2px; background: #eef3fa; border-radius: 12px; padding: 1px 4px 1px 9px;
+                margin: 0 4px 4px 0; font-size: 12.5px; }
+  .money-chip .rm { font-size: 15px; padding: 0 4px; }
+  .money-sug { margin-bottom: 4px; font-size: 12.5px; }
+  .money-h4 { margin: 6px 0 0; font-size: 14px; }
   table.ed .err-cell { font-size: 12px; color: var(--red); }
 
   table.preview { border-collapse: collapse; font-size: 13px; width: 100%; margin-top: 10px; }
@@ -573,6 +588,22 @@
       </div>
 
       <div class="admin-only">
+        <h3 style="cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('setup-money')">
+          <span id="section-arrow-setup-money" style="display:inline-block;width:16px">▸</span>Compare with Money
+        </h3>
+        <div id="section-body-setup-money" class="hidden">
+          <p class="desc">
+            Upload Microsoft Money's <em>Portfolio Value by Investment Account</em> report and/or its <em>Net Worth</em> report
+            (exported to Excel or CSV; choose both at once to check everything together) to find differences from the
+            accounts here. Funds with a ticker are compared by units (Money's Quantity); accounts without a
+            ticker by value. Each Money line is matched to one or more accounts once, and the match is remembered. Nothing in
+            the accounts changes. The file itself isn't saved.
+          </p>
+          <label class="btn btn-secondary btn-sm money-pick">Choose the Money file(s)…
+            <input type="file" accept=".csv,.xlsx,.xls" multiple onchange="handleMoneyUpload(this)" style="display:none"></label>
+          <div id="money-result"></div>
+        </div>
+
         <h3 style="cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('setup-delete')">
           <span id="section-arrow-setup-delete" style="display:inline-block;width:16px">▸</span>Delete all accounts
         </h3>
@@ -896,8 +927,9 @@ function startApp() {
   sub('household/taxRates', v => { taxRates = v || {}; if (!taxDirty) renderTaxRates(); renderTaxLiabilities(); });
   sub('household/targetAllocation', v => { targetAlloc = v || null; if (!targetsDirty) renderTargets(); if (lastPf) renderAllocation(lastPf); });
   sub('household/options', v => { rebuildLists(v); renderPortfolio(); if (!holdingsDirty) renderHoldings(); if (!targetsDirty) renderTargets(); });
-  sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); convertAccountsIfNeeded(); renderRoi(); });
+  sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); convertAccountsIfNeeded(); renderRoi(); renderMoneyCompare(); });
   sub('household/roi', v => { roiData = v || {}; renderRoi(); });
+  sub('household/moneyMap', v => { moneyMap = v || {}; renderMoneyCompare(); });
   sub('prices', v => { prices = v || {}; renderPortfolio(); });
   sub('priceStatus', v => { priceStatus = v; renderPortfolio(); });
 }
@@ -2793,6 +2825,225 @@ async function saveTaxRates() {
     btn.disabled = false;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   SETUP TAB — Compare with Money (Admins)
+   Reads Money's "Portfolio Value by Investment Account" report: a header row with Investment,
+   Quantity and Value (dollars), one line per investment combined across accounts, cash lines
+   like "Dan Family Trust (Cash)", and a Grand Total. The file stays in memory; only the matches are
+   saved, in household/moneyMap/{key}: { name, accounts: { accountId: true }, ignore? }.
+   A line matched to accounts with a ticker compares Money's Quantity with their total units
+   (flagged when off by more than 0.01); otherwise Money's Value with their total value, flagged
+   when off by more than 1% AND more than $1K. Zero lines (no quantity, no value) are left out unless
+   they're matched to accounts.
+══════════════════════════════════════════════════════════════════════ */
+let moneyMap = {};
+let moneyFile = null;   // { filename, asOf, lines: [{ name, key, qty, value ($K) }] }
+const MONEY_UNIT_TOL = 0.01, MONEY_PCT_TOL = 0.01, MONEY_K_TOL = 1;
+
+// A Firebase-safe key for a Money investment name (no . # $ [ ] /).
+function moneyKey(name) { return String(name).trim().toLowerCase().replace(/[.#$\[\]\/]/g, '_').replace(/\s+/g, ' ').slice(0, 200) || '_'; }
+
+// Several files can be chosen at once (e.g. the portfolio report and the Net Worth report); their
+// lines are checked together. A line in both files (same name and value) counts once.
+async function handleMoneyUpload(input) {
+  const files = [...(input.files || [])];
+  input.value = '';
+  if (!files.length || !isAdminUser()) return;
+  const parsed = [];
+  for (const f of files) {
+    let rows;
+    try { rows = await readUploadRows(f); } catch (e) { alert(`Could not read ${f.name}: ${e.message}`); return; }
+    const p = parseMoneyRows(rows);
+    if (p.error) { alert(`${f.name}: ${p.error}`); return; }
+    parsed.push({ ...p, filename: f.name });
+  }
+  setMoneyFiles(parsed);
+}
+function setMoneyFiles(parsed) {
+  const lines = [], seen = new Map();
+  parsed.forEach(p => p.lines.forEach(l => {
+    const prev = seen.get(l.key);
+    if (prev && Math.abs((prev.value || 0) - (l.value || 0)) < 0.0005 && (prev.qty || 0) === (l.qty || 0)) return;
+    seen.set(l.key, l);
+    lines.push(l);
+  }));
+  const asOf = [...new Set(parsed.map(p => p.asOf).filter(Boolean))].join(', ');
+  moneyFile = { filename: parsed.map(p => p.filename).join(' + '), asOf, lines };
+  renderMoneyCompare();
+}
+// One Money report → { lines: [{ name, key, qty, value ($K) }], asOf } or { error }. Two layouts:
+//  • Portfolio Value by Investment Account: header Investment | Quantity | … | Value.
+//  • Net Worth: header Account | Total, with "Assets" / "Liabilities" headings and total rows.
+//    Liabilities come out negative (a loan is a negative value, as on the Setup tab).
+function parseMoneyRows(rows) {
+  const norm = v => String(v ?? '').trim().toLowerCase();
+  let hi = rows.findIndex(r => r.some(v => norm(v) === 'investment') && r.some(v => norm(v) === 'quantity') && r.some(v => norm(v) === 'value'));
+  let kind = 'portfolio';
+  if (hi < 0) { hi = rows.findIndex(r => norm(r[0]) === 'account' && r.some(v => norm(v) === 'total')); kind = 'networth'; }
+  if (hi < 0) return { error: 'This isn\'t a Money report this page can read. Use "Portfolio Value by Investment Account" (Investment, Quantity, Value columns) or "Net Worth" (Account, Total columns).' };
+  const h = rows[hi].map(norm);
+  const iName = kind === 'portfolio' ? h.indexOf('investment') : 0;
+  const iQty = kind === 'portfolio' ? h.indexOf('quantity') : -1;
+  const iVal = kind === 'portfolio' ? h.indexOf('value') : h.indexOf('total');
+  const asOfCell = rows.slice(0, hi).flat().map(String).find(s => /^as of /i.test(s.trim()));
+  const lines = [];
+  let sign = 1;
+  rows.slice(hi + 1).forEach(r => {
+    const name = String(r[iName] ?? '').trim();
+    if (!name) return;
+    if (/^liabilit/i.test(name) && num(r[iVal]) === null) { sign = -1; return; }
+    if (/^assets$/i.test(name) && num(r[iVal]) === null) { sign = 1; return; }
+    if (/^(grand total|total|total assets|total liabilities|net worth)$/i.test(name)) return;   // not "Total Intl Stock Index"
+    const q = iQty >= 0 ? num(r[iQty]) : null, v = num(r[iVal]);
+    if (kind === 'networth' && (v === null || !isFinite(v))) return;     // a heading
+    lines.push({ name, key: moneyKey(name), qty: q === null || !isFinite(q) ? null : q,
+                 value: v === null || !isFinite(v) ? null : sign * v / 1000 });
+  });
+  if (!lines.length) return { error: 'No lines were found under the header row.' };
+  return { lines, asOf: asOfCell ? asOfCell.trim().replace(/^as of /i, '') : '' };
+}
+function loadMoneyRows(rows, filename) {   // one report (kept for testing)
+  const p = parseMoneyRows(rows);
+  if (p.error) { alert(p.error); return; }
+  setMoneyFiles([{ ...p, filename }]);
+}
+
+// Suggest an account for an unmatched Money line by shared words, after expanding Money's
+// abbreviations (Va → vanguard, Indx → index, …).
+const MONEY_ABBR = { va: 'vanguard', vang: 'vanguard', fi: 'fidelity', fid: 'fidelity', indx: 'index', ind: 'index', mkt: 'market',
+  stk: 'stock', intl: 'international', tot: 'total', st: 'short', lt: 'long', sprtn: 'spartan', inv: 'investor', ali: 'alison', alis: 'alison',
+  mck: 'mckinsey', strateg: 'strategic', euro: 'europe', european: 'europe' };
+const MONEY_STOP = new Set(['the', 'fund', 'funds', 'shares', 'share', 'admiral', 'inc', 'llc', 'lp', 'and', 'of', 'cash']);
+function moneyWords(s) {
+  return new Set(String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean)
+    .map(w => MONEY_ABBR[w] || w).filter(w => !MONEY_STOP.has(w)));
+}
+function moneyAccountLabel(a) {
+  const nm = a.name || (a.ticker && prices[a.ticker] && prices[a.ticker].name) || a.ticker || '(no name)';
+  return `${nm}${a.ticker && nm !== a.ticker ? ` (${a.ticker})` : ''}${a.owner ? ' — ' + a.owner : ''}`;
+}
+function suggestMoneyAccount(line, accts, taken) {
+  const mw = moneyWords(line.name);
+  let best = null, bestScore = 0;
+  accts.forEach(a => {
+    if (taken.has(a.id)) return;
+    const aw = moneyWords([a.name, a.ticker && prices[a.ticker] && prices[a.ticker].name, a.ticker].filter(Boolean).join(' '));
+    const inter = [...mw].filter(w => aw.has(w)).length;
+    const score = inter / Math.max(1, Math.min(mw.size, aw.size) + 0.5 * Math.abs(mw.size - aw.size));
+    if (score > bestScore) { bestScore = score; best = a; }
+  });
+  return bestScore >= 0.5 ? best : null;
+}
+
+function computeMoneyCompare() {
+  const accts = sortedAccounts();
+  const byId = Object.fromEntries(accts.map(a => [a.id, a]));
+  const matchedIds = new Set();
+  Object.values(moneyMap).forEach(m => Object.keys(m.accounts || {}).forEach(id => matchedIds.add(id)));
+  const out = [];
+  moneyFile.lines.forEach(l => {
+    const m = moneyMap[l.key];
+    const ids = m ? Object.keys(m.accounts || {}).filter(id => byId[id]) : [];
+    const zero = !(l.qty) && !(l.value && Math.abs(l.value) >= 0.0005);
+    if (zero && !ids.length) return;                         // closed position / empty cash: ignored
+    const row = { ...l, ids, accts: ids.map(id => byId[id]), ignore: !!(m && m.ignore) };
+    if (row.ignore) { row.status = 'ignored'; out.push(row); return; }
+    if (!ids.length) {
+      row.status = 'unmatched';
+      row.suggest = suggestMoneyAccount(l, accts, matchedIds);
+      out.push(row); return;
+    }
+    const priced = row.accts.filter(a => a.ticker);
+    if (priced.length) {
+      row.measure = 'units';
+      row.app = priced.reduce((s, a) => s + (Number(a.units) || 0), 0);
+      row.money = l.qty || 0;
+      row.diff = row.app - row.money;
+      row.status = Math.abs(row.diff) > MONEY_UNIT_TOL ? 'differs' : 'ok';
+    } else {
+      row.measure = 'value';
+      row.app = row.accts.reduce((s, a) => s + (accountValueK(a) || 0), 0);
+      row.money = l.value || 0;
+      row.diff = row.app - row.money;
+      const big = Math.abs(row.diff) > MONEY_K_TOL && Math.abs(row.diff) > MONEY_PCT_TOL * Math.max(Math.abs(row.money), Math.abs(row.app));
+      row.status = big ? 'differs' : 'ok';
+    }
+    out.push(row);
+  });
+  // Accounts with something in them that no line in this file accounts for.
+  const inFile = new Set(out.flatMap(r => r.ids));
+  const appOnly = accts.filter(a => !inFile.has(a.id) && ((a.ticker ? Number(a.units) : Math.abs(accountValueK(a) || 0)) > 0.0005));
+  const order = { differs: 0, unmatched: 1, ok: 2, ignored: 3 };
+  out.sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
+  return { lines: out, appOnly, accts };
+}
+
+function renderMoneyCompare() {
+  const box = document.getElementById('money-result');
+  if (!box) return;
+  if (!moneyFile) { box.innerHTML = ''; return; }
+  const { lines, appOnly, accts } = computeMoneyCompare();
+  const count = s => lines.filter(l => l.status === s).length;
+  const linkedElsewhere = new Set();
+  Object.values(moneyMap).forEach(m => Object.keys(m.accounts || {}).forEach(id => linkedElsewhere.add(id)));
+  const fmtMeasure = (r, x) => r.measure === 'units' ? fmtNum(x, 3) : fmtNum(x, 1);
+  let h = `<div class="money-sum"><strong>${escapeHtml(moneyFile.filename)}</strong>${moneyFile.asOf ? ` <span class="muted">(Money, as of ${escapeHtml(moneyFile.asOf)})</span>` : ''}: ` +
+    `<span class="badge roi-bad">${count('differs')} differ</span> <span class="badge badge-stale">${count('unmatched')} not matched yet</span> ` +
+    `<span class="badge roi-new">${appOnly.length} in the app only</span> <span class="badge badge-ok">${count('ok')} agree</span>` +
+    ` <button class="btn-link" onclick="moneyFile = null; renderMoneyCompare()">Close</button></div>`;
+  h += `<div class="tbl-wrap"><table class="ed money-tbl"><thead><tr><th>Money investment</th><th>App account(s)</th><th>Compared</th>` +
+    `<th style="text-align:right">Money</th><th style="text-align:right">App</th><th style="text-align:right">App − Money</th><th>Result</th></tr></thead><tbody>`;
+  lines.forEach(r => {
+    const chips = r.accts.map(a => `<span class="money-chip">${escapeHtml(moneyAccountLabel(a))}` +
+      `<button class="rm" title="Unmatch" onclick="moneyUnlink(this.dataset.k, '${a.id}')" data-k="${escapeHtml(r.key)}">×</button></span>`).join('');
+    const opts = accts.filter(a => !r.ids.includes(a.id))
+      .map(a => `<option value="${a.id}">${escapeHtml(moneyAccountLabel(a))}${linkedElsewhere.has(a.id) ? ' (matched to another line)' : ''}</option>`).join('');
+    const addSel = `<select class="money-add" data-k="${escapeHtml(r.key)}" data-n="${escapeHtml(r.name)}" onchange="if (this.value) moneyLink(this.dataset.k, this.dataset.n, this.value)">` +
+      `<option value="">${r.ids.length ? '+ add another account…' : 'Match to an account…'}</option>${opts}</select>`;
+    let acctCell, result;
+    if (r.status === 'ignored') {
+      acctCell = `<span class="muted">Ignored</span> <button class="btn-link" onclick="moneyIgnore(this.dataset.k, this.dataset.n, false)" data-k="${escapeHtml(r.key)}" data-n="${escapeHtml(r.name)}">Undo</button>`;
+      result = '<span class="muted">ignored</span>';
+    } else if (r.status === 'unmatched') {
+      acctCell = (r.suggest ? `<div class="money-sug">Suggested: ${escapeHtml(moneyAccountLabel(r.suggest))} ` +
+          `<button class="btn btn-primary btn-sm" onclick="moneyLink(this.dataset.k, this.dataset.n, '${r.suggest.id}')" data-k="${escapeHtml(r.key)}" data-n="${escapeHtml(r.name)}">Use</button></div>` : '') +
+        addSel + ` <button class="btn-link" title="Not tracked in the app; skip this line from now on" onclick="moneyIgnore(this.dataset.k, this.dataset.n, true)" data-k="${escapeHtml(r.key)}" data-n="${escapeHtml(r.name)}">Ignore</button>`;
+      result = '<span class="badge badge-stale">not matched</span>';
+    } else {
+      acctCell = chips + addSel;
+      result = r.status === 'ok' ? '<span class="badge badge-ok">agrees</span>' : '<span class="badge roi-bad">differs</span>';
+    }
+    const moneyShown = r.status === 'unmatched' || r.status === 'ignored'
+      ? (r.qty ? fmtNum(r.qty, 3) + ' units' : fmtNum(r.value, 1) + ' $K') : fmtMeasure(r, r.money);
+    h += `<tr class="money-${r.status}"><td>${escapeHtml(r.name)}</td><td class="money-accts">${acctCell}</td>` +
+      `<td class="muted">${r.measure === 'units' ? 'units' : r.measure === 'value' ? 'value $K' : ''}</td>` +
+      `<td class="num">${moneyShown}</td><td class="num">${r.measure ? fmtMeasure(r, r.app) : ''}</td>` +
+      `<td class="num${r.status === 'differs' ? ' neg' : ''}">${r.measure && Math.abs(r.diff) > 1e-9 ? (r.diff > 0 ? '+' : '') + fmtMeasure(r, r.diff) : ''}</td><td>${result}</td></tr>`;
+  });
+  h += '</tbody></table></div>';
+  if (appOnly.length) {
+    h += `<h4 class="money-h4">In the app but not in this Money file (${appOnly.length})</h4>` +
+      `<p class="desc" style="margin:2px 0 6px">Accounts with units or a value that no Money line is matched to. Match them above, or check whether Money is missing them.</p>` +
+      `<table class="ed money-tbl"><thead><tr><th>Account</th><th style="text-align:right">Units</th><th style="text-align:right">Value $K</th></tr></thead><tbody>` +
+      appOnly.map(a => `<tr><td>${escapeHtml(moneyAccountLabel(a))}</td><td class="num">${a.ticker ? fmtNum(Number(a.units) || 0, 3) : ''}</td>` +
+        `<td class="num">${fmtNum(accountValueK(a), 1)}</td></tr>`).join('') + '</tbody></table>';
+  }
+  box.innerHTML = h;
+}
+
+async function moneyWrite(key, name, fn) {
+  if (!isAdminUser()) return;
+  const cur = moneyMap[key] || { name };
+  const next = fn({ name: cur.name || name, accounts: { ...(cur.accounts || {}) }, ...(cur.ignore ? { ignore: true } : {}) });
+  if (!Object.keys(next.accounts).length) delete next.accounts;
+  if (!next.ignore) delete next.ignore;
+  try { await db.ref(`household/moneyMap/${key}`).set(next.accounts || next.ignore ? next : null); }
+  catch (e) { alert('Could not save the match: ' + e.message + '\n\nIf this says "permission denied", publish the updated database rules (see SETUP.md).'); }
+}
+function moneyLink(key, name, id) { moneyWrite(key, name, m => { m.accounts[id] = true; delete m.ignore; return m; }); }
+function moneyUnlink(key, id) { moneyWrite(key, '', m => { delete m.accounts[id]; return m; }); }
+function moneyIgnore(key, name, on) { moneyWrite(key, name, m => { if (on) { m.ignore = true; m.accounts = {}; } else delete m.ignore; return m; }); }
 
 /* ══════════════════════════════════════════════════════════════════════
    ROI ON ILLIQUID ASSETS TAB
