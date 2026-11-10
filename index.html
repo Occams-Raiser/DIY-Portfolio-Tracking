@@ -154,6 +154,11 @@
   table.pf tr.total td.part { font-weight: 400; border-top: none; border-bottom: 1px solid #f0f0f0; }
   table.pf tr.total td.nb { font-weight: 400; }
   table.pf tr.total td.row-title { text-align: right; padding-right: 14px; }
+  /* Below Total assets: taxes due (red, normal weight) and net worth (bold). */
+  table.pf tr.pf-tax td { color: var(--red); font-weight: 400; border-bottom: none; }
+  table.pf tr.pf-tax td.row-title, table.pf tr.pf-net td.row-title { text-align: right; padding-right: 14px; }
+  table.pf tr.pf-net td { border-top: none; }
+  table.pf tr.pf-net td.amt { border-top: 1px solid #333; }
   /* Asset-class subtotal rows: click to show / hide the class's rows. */
   table.pf tr.class-row { cursor: pointer; }
   table.pf tr.class-row td { font-weight: 600; border-bottom: 1px solid #e2e2e2; }
@@ -187,8 +192,10 @@
   .tgt-warn { font-size: 12px; font-weight: 600; }
   table.alloc tr.empty-cls td { color: #999; }
   /* Δ to Target: a narrow bar area on the left, a smaller % on the right, header centered over both. */
-  table.alloc td.dcell, table.alloc tr.class-row td.dcell { min-width: 96px; font-size: 12px; font-weight: 400; }
+  table.alloc td.dcell, table.alloc tr.class-row td.dcell { width: 46px; min-width: 46px; padding: 5px 58px 5px 8px;
+    font-size: 12px; font-weight: 400; text-align: right; }   /* the right padding holds the bars */
   table.alloc td.dcell.dneg { color: var(--red); }
+  table.alloc tr.total td.dcell.dtotal { font-weight: 700; }
   table.alloc th.dhead { text-align: center; }
   .eq-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
   .eq-tag .flag { display: block; border: 1px solid #ccc; border-radius: 1px; }
@@ -296,6 +303,36 @@
   table.ed select:focus { outline: none; border-color: var(--orange); }
   table.ed .rm { background: none; border: none; color: #999; font-size: 18px; cursor: pointer; }
   table.ed .rm:hover { color: var(--red); }
+
+  /* ── ROI on Illiquid assets tab ── */
+  .muted { color: #888; }
+  .roi-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 12px; }
+  .roi-tools label.btn { text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer; }
+  table.roi td.neg, .roi-cf .neg, .roi-up-tbl .neg { color: var(--red); }
+  table.roi tr.roi-detail > td { background: #fafafa; text-align: left; padding: 10px 16px 14px 30px; }
+  .roi-settings { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 10px; }
+  .roi-settings label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 600; color: #555;
+                        text-transform: none; letter-spacing: normal; margin: 0; }
+  .roi-settings input, .roi-settings select { font-size: 13.5px; padding: 5px 8px; border: 1.5px solid #ddd; border-radius: 8px; width: auto; }
+  .roi-settings input[type="text"]:not(.num) { width: 240px; }
+  table.ed.roi-cf { width: auto; min-width: 300px; margin-bottom: 8px; }
+  table.ed.roi-cf input { font-size: 13.5px; padding: 4px 8px; width: auto; }
+  table.ed.roi-cf input.num, table.ed.roi-up-tbl input.num, td.num, input.num { text-align: right; }
+  table.ed.roi-cf tr.roi-term td { font-style: italic; color: #555; }
+  .roi-up { margin-bottom: 14px; }
+  .roi-up-head { margin-bottom: 8px; }
+  .roi-up-choice { margin: 6px 0 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+  .roi-up .roi-up-choice select, .roi-up .roi-up-choice input { font-size: 13.5px; padding: 4px 8px; width: auto; max-width: 380px;
+    display: inline-block; margin: 0 4px; vertical-align: middle; }
+  .roi-up-choice .roi-up-line { display: block; }
+  table.ed.roi-up-tbl { width: auto; min-width: 520px; background: white; }
+  table.ed.roi-up-tbl td, table.ed.roi-up-tbl th { padding: 4px 10px; font-size: 13px; }
+  table.ed.roi-up-tbl tr.muted td { color: #aaa; text-decoration: line-through; }
+  .badge.roi-new { background: #e3edf9; color: #1d4f8c; }
+  .badge.roi-bad { background: #fde2e1; color: #9b1c1c; }
+  .btn-link { background: none; border: none; color: var(--yale); cursor: pointer; font-size: 13px; padding: 2px 6px; text-decoration: underline; }
+  .btn-link.on { color: #1e6b3a; font-weight: 600; text-decoration: none; }
+  td.roi-act { white-space: nowrap; }
   table.ed .err-cell { font-size: 12px; color: var(--red); }
 
   table.preview { border-collapse: collapse; font-size: 13px; width: 100%; margin-top: 10px; }
@@ -379,6 +416,7 @@
     <div class="tabs">
       <button class="tab active" onclick="switchTab('app','portfolio',this)">Portfolio</button>
       <button class="tab" onclick="switchTab('app','tax',this)">Tax Liabilities</button>
+      <button class="tab" onclick="switchTab('app','roi',this)">ROI on Illiquid assets</button>
       <button class="tab" onclick="switchTab('app','holdings',this)">Setup</button>
       <button class="tab" onclick="switchTab('app','account',this)">User Admin</button>
     </div>
@@ -548,6 +586,26 @@
       </div>
     </div>
 
+    <!-- ROI on Illiquid assets: dated cashflows per investment → IRR and MOIC. Only Admins can edit. -->
+    <div class="tab-pane" id="tab-app-roi">
+      <p class="desc" style="margin-top:0">
+        Returns on illiquid investments from their dated cashflows ($ thousands; negative = cash invested, positive = cash
+        returned). <strong>IRR</strong> is annualized from the actual dates (like Excel's XIRR), counting the current value as
+        cash received on the valuation date. <strong>MOIC</strong> = (cash returned + current value) ÷ cash invested.
+        A held investment is linked to its illiquid account on the Setup tab, which supplies its current value; an
+        investment with no account is no longer held and has no current value. Click a row to see and edit its cashflows.
+        <span id="roi-readonly-note" class="hidden">Only Admins can change these.</span>
+      </p>
+      <div class="row-actions admin-only roi-tools">
+        <button class="btn btn-primary btn-sm" onclick="addRoiInvestment()">+ Add investment</button>
+        <label class="btn btn-secondary btn-sm" style="margin:0">Upload cashflows…
+          <input type="file" id="roi-file" accept=".csv,.xlsx,.xls" onchange="handleRoiUpload(this)" style="display:none"></label>
+        <button class="btn btn-secondary btn-sm" onclick="downloadRoiTemplate()">Download template</button>
+      </div>
+      <div id="roi-preview"></div>
+      <div class="tbl-wrap"><table class="alloc roi" id="roi-table"></table></div>
+    </div>
+
     <!-- Tax Liabilities: collapsible sections (GTIA style guide §10a). Only Admins can edit. -->
     <div class="tab-pane" id="tab-app-tax">
       <h3 style="margin-top:0;cursor:pointer;user-select:none" onclick="toggleCollapsibleSection('tax-liability')">
@@ -713,6 +771,7 @@ function switchTab(scope, name, btn) {
   if (name === 'holdings' && !holdingsDirty) renderHoldings();
   if (name === 'tax' && !taxDirty) renderTaxRates();
   if (name === 'tax') renderTaxLiabilities();
+  if (name === 'roi') renderRoi();
   if (name === 'account') {
     renderPwRules();
     if (currentUser && currentUser.isAdmin) { renderPwRulesFor('new-pw', 'new-pw2', 'new-pw-rules'); loadAdminUsers(); }
@@ -837,7 +896,8 @@ function startApp() {
   sub('household/taxRates', v => { taxRates = v || {}; if (!taxDirty) renderTaxRates(); renderTaxLiabilities(); });
   sub('household/targetAllocation', v => { targetAlloc = v || null; if (!targetsDirty) renderTargets(); if (lastPf) renderAllocation(lastPf); });
   sub('household/options', v => { rebuildLists(v); renderPortfolio(); if (!holdingsDirty) renderHoldings(); if (!targetsDirty) renderTargets(); });
-  sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); convertAccountsIfNeeded(); });
+  sub('household/assets', v => { assets = v || {}; renderPortfolio(); if (!holdingsDirty) renderHoldings(); convertAccountsIfNeeded(); renderRoi(); });
+  sub('household/roi', v => { roiData = v || {}; renderRoi(); });
   sub('prices', v => { prices = v || {}; renderPortfolio(); });
   sub('priceStatus', v => { priceStatus = v; renderPortfolio(); });
 }
@@ -1042,13 +1102,13 @@ const BAR_COLORS = { blue: ['#5B9BD5', '#C9DEF3'], red: ['#E06666', '#F6CFCF'], 
 // Directional data bar (Excel's negative-value bars): a thin gray axis splits the cell in
 // proportion to the column's largest under / over values; negatives grow left of it in red,
 // positives right of it in pale green, each solid at the axis and fading outward.
-// The bars use the left DELTA_BAR_AREA of the cell, so the number on the right stays clear.
+// The bars use the right DELTA_BAR_AREA of the cell, so the number on the left stays clear.
 const DELTA_BAR_AREA = 46;
 function deltaBar(x, maxNeg, maxPos) {
   if (typeof x !== 'number' || !isFinite(x)) return '';
   const span = maxNeg + maxPos;
   if (!span) return '';
-  const a = maxNeg / span * DELTA_BAR_AREA;                                  // axis position, % of the cell width
+  const a = 100 - DELTA_BAR_AREA + maxNeg / span * DELTA_BAR_AREA;           // axis position, % of the cell width
   const w = Math.min(DELTA_BAR_AREA, Math.abs(x) / span * DELTA_BAR_AREA);   // bar length
   const f = n => n.toFixed(1) + '%';
   const axis = `linear-gradient(#9a9a9a,#9a9a9a) ${f(a)} 0/1px 100% no-repeat`;
@@ -1311,8 +1371,14 @@ function renderPortfolio() {
   });
 
   // Grand total (liquid + illiquid)
-  h += '<tr class="total"><td class="l row-title" colspan="6" style="border-top:none">All assets</td><td class="gap" style="border-top:none"></td><td colspan="4" style="border-top:none"></td>' +
+  h += '<tr class="total"><td class="l row-title" colspan="6" style="border-top:none">Total assets</td><td class="gap" style="border-top:none"></td><td colspan="4" style="border-top:none"></td>' +
        `<td>${fmtPct(t.all5y)}</td><td>${fmtPct(t.allRet)}</td><td>${fmtNum(t.allValue, 0)}</td><td>${t.allValue ? '100%' : ''}</td></tr>`;
+  // Taxes due if everything were sold or withdrawn today (Tax Liabilities tab), then net worth.
+  const taxDue = computeTaxes(pf).total;
+  const tail = (title, amount, cls) => `<tr class="${cls}"><td class="l row-title" colspan="6">${title}</td><td class="gap"></td>` +
+    `<td colspan="4"></td><td colspan="2"></td><td class="amt">${fmtNum(amount, 0)}</td><td></td></tr>`;
+  h += tail('Total future taxes due', taxDue, 'pf-tax');
+  h += tail('Net worth', t.allValue - taxDue, 'total pf-net');
   h += '</tbody>';
   document.getElementById('pf-table').innerHTML = h;
   renderOwnerSlide(pf);
@@ -1466,7 +1532,7 @@ function allocationTableHtml({ rows, total, sub = {} }, table, opts = {}) {
   const deltaTitle = r => typeof r.delta === 'number' ? ` title="Actual ${fmtPct(r.pctAll, 1)} − target ${fmtTarget(r.target)}"` : '';
   const tgtCell = r => `<td class="dcell${r.delta < -5e-4 ? ' dneg' : ''}" style="${deltaBar(r.delta, maxNeg, maxPos)}"${deltaTitle(r)}>${fmtDelta(r.delta)}</td>`;
   const row = (r, cls) => `<tr class="${cls}${cls && opts.plainTotal ? ' plain' : ''}${r.empty ? ' empty-cls' : ''}"><td class="l">${escapeHtml(cls ? r.label : label(r.label))}</td><td>${fmtNum(r.value, 0)}</td>` +
-    (cls ? `<td>${fmtPct(r.pctAll, 0)}</td><td${deltaTitle(r)}>${fmtDelta(r.delta)}</td><td>${fmtPct(r.ytd)}</td><td>${fmtPct(r.tr5y)}</td>`
+    (cls ? `<td>${fmtPct(r.pctAll, 0)}</td><td class="dcell dtotal${r.delta < -5e-4 ? ' dneg' : ''}"${deltaTitle(r)}>${fmtDelta(r.delta)}</td><td>${fmtPct(r.ytd)}</td><td>${fmtPct(r.tr5y)}</td>`
          : pctCell(r) + tgtCell(r) + retCell(r.ytd, r.ytdAssumed, cYtd) + retCell(r.tr5y, r.tr5yAssumed, c5)) + '</tr>';
   // A group row (Equities, Private equity): ▸/▾ and a count; when open, its classes follow,
   // indented, with no target of their own.
@@ -2725,6 +2791,456 @@ async function saveTaxRates() {
     alert('Could not save the tax rates: ' + e.message + '\n\nIf this says "permission denied", publish the updated database rules (see SETUP.md).');
   } finally {
     btn.disabled = false;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   ROI ON ILLIQUID ASSETS TAB
+   household/roi/{id}: { name, accountId?, valuationDate? ('YYYY-MM-DD'; none = today), createdAt,
+                         cashflows: { {cfId}: { date 'YYYY-MM-DD', amount ($K; − invested, + returned) } } }
+   A held investment links to an illiquid account (household/assets/{accountId}); its current value
+   IS that account's value, so editing it here edits the account. With no account (or the account
+   deleted) the investment is no longer held and has no current value.
+   IRR = XIRR over the cashflows plus the current value on the valuation date; MOIC = (returned +
+   current value) ÷ invested. Only Admins can change anything (the database rules check it too).
+══════════════════════════════════════════════════════════════════════ */
+let roiData = {};
+let pendingRoi = null;               // an upload awaiting the Admin's checks
+const roiOpen = new Set();           // investments whose cashflows are shown
+const roiSort = { key: 'first', dir: 'asc' };
+
+const pad2 = n => String(n).padStart(2, '0');
+function todayIso() { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+// A date from a file cell: an Excel date serial, a Date, "YYYY-MM-DD" or "M/D/YYYY" (2-digit years → 20xx).
+function parseRoiDate(v) {
+  let y, m, d;
+  if (v instanceof Date && !isNaN(v)) { y = v.getFullYear(); m = v.getMonth() + 1; d = v.getDate(); }
+  else if (typeof v === 'number') {
+    if (!(v > 1 && v < 2958466)) return null;
+    const t = new Date(Math.round((v - 25569) * 864e5));   // Excel serial → UTC date
+    y = t.getUTCFullYear(); m = t.getUTCMonth() + 1; d = t.getUTCDate();
+  } else {
+    const s = String(v ?? '').trim();
+    let x = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (x) { y = +x[1]; m = +x[2]; d = +x[3]; }
+    else if ((x = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/))) { m = +x[1]; d = +x[2]; y = +x[3] < 100 ? 2000 + +x[3] : +x[3]; }
+    else return null;
+  }
+  const chk = new Date(Date.UTC(y, m - 1, d));
+  if (chk.getUTCFullYear() !== y || chk.getUTCMonth() !== m - 1 || chk.getUTCDate() !== d || y < 1900 || y > 2200) return null;
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+const isoDays = iso => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 864e5;
+
+// Excel's XIRR: the annual rate r with Σ amount / (1 + r)^(days from the first date / 365) = 0.
+// Newton's method, then bisection if that fails. null without both an outflow and an inflow, or
+// when no rate solves it.
+function xirr(flows) {
+  const fs = flows.filter(f => f.amount && f.date);
+  if (!fs.some(f => f.amount < 0) || !fs.some(f => f.amount > 0)) return null;
+  const t0 = Math.min(...fs.map(f => isoDays(f.date)));
+  const ts = fs.map(f => (isoDays(f.date) - t0) / 365);
+  const npv = r => fs.reduce((s, f, i) => s + f.amount / Math.pow(1 + r, ts[i]), 0);
+  let r = 0.1;
+  for (let k = 0; k < 100; k++) {
+    const v = npv(r);
+    const dv = fs.reduce((s, f, i) => s - ts[i] * f.amount / Math.pow(1 + r, ts[i] + 1), 0);
+    if (!isFinite(v) || !isFinite(dv) || dv === 0) break;
+    const next = r - v / dv;
+    if (!(next > -1)) break;
+    if (Math.abs(next - r) < 1e-10) return next;
+    r = next;
+  }
+  let lo = -0.999999, hi = 1, flo = npv(lo), fhi = npv(hi);
+  while (flo * fhi > 0 && hi < 1e6) { hi *= 4; fhi = npv(hi); }
+  if (!(flo * fhi <= 0)) return null;
+  for (let k = 0; k < 300; k++) {
+    const mid = (lo + hi) / 2, fm = npv(mid);
+    if (Math.abs(fm) < 1e-10 || hi - lo < 1e-12) return mid;
+    if (flo * fm < 0) { hi = mid; fhi = fm; } else { lo = mid; flo = fm; }
+  }
+  return (lo + hi) / 2;
+}
+
+function roiAccount(inv) { return inv.accountId && assets[inv.accountId] ? normalizeAccount(assets[inv.accountId]) : null; }
+function roiCashflows(inv) {
+  return Object.entries(inv.cashflows || {}).map(([cfId, c]) => ({ cfId, date: c.date, amount: Number(c.amount) || 0 }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+// Metrics for a set of cashflows plus current values ({ amount, date } each).
+function roiMetrics(flows, terminals) {
+  const invested = -flows.reduce((s, f) => s + Math.min(0, f.amount), 0);
+  const returned = flows.reduce((s, f) => s + Math.max(0, f.amount), 0);
+  const current = terminals.reduce((s, t) => s + t.amount, 0);
+  const dates = flows.map(f => f.date).filter(Boolean).sort();
+  return {
+    invested, returned, current, gain: returned + current - invested,
+    moic: invested > 0 ? (returned + current) / invested : null,
+    irr: xirr(flows.concat(terminals.filter(t => t.amount))),
+    first: dates[0] || null, last: dates[dates.length - 1] || null,
+  };
+}
+function computeRoi() {
+  const rows = Object.entries(roiData || {}).map(([id, inv]) => {
+    const acct = roiAccount(inv);
+    const flows = roiCashflows(inv);
+    const valDate = inv.valuationDate || todayIso();
+    const cur = acct ? accountValueK(acct) || 0 : 0;
+    const m = roiMetrics(flows, [{ amount: cur, date: valDate }]);
+    return { id, inv, name: inv.name || '(unnamed)', acct, held: !!acct, status: acct ? 'Held' : 'Exited',
+             flows, valDate, ...m, open: roiOpen.has(id) };
+  });
+  const all = roiMetrics(rows.flatMap(r => r.flows), rows.map(r => ({ amount: r.current, date: r.valDate })));
+  return { rows, total: all };
+}
+
+function setRoiSort(key) {
+  if (roiSort.key === key) roiSort.dir = roiSort.dir === 'asc' ? 'desc' : 'asc';
+  else { roiSort.key = key; roiSort.dir = ['name', 'status', 'first'].includes(key) ? 'asc' : 'desc'; }
+  renderRoi();
+}
+function toggleRoi(id) { if (roiOpen.has(id)) roiOpen.delete(id); else roiOpen.add(id); renderRoi(); }
+const fmtMoic = x => typeof x === 'number' && isFinite(x) ? x.toFixed(2) + '×' : '—';
+const fmtIrr = x => typeof x === 'number' && isFinite(x) ? fmtPct(x, 1) : '—';
+
+function renderRoi() {
+  const tbl = document.getElementById('roi-table');
+  if (!tbl || !currentUser) return;
+  const admin = isAdminUser();
+  document.getElementById('roi-readonly-note').classList.toggle('hidden', admin);
+  const { rows, total } = computeRoi();
+  const th = (key, label, cls = '') => {
+    const on = roiSort.key === key;
+    return `<th class="sortable ${cls}" onclick="setRoiSort('${key}')">${label}` +
+      `<span class="sort-arrow" style="opacity:${on ? 1 : .55}">${on ? (roiSort.dir === 'asc' ? '▲' : '▼') : '⇕'}</span></th>`;
+  };
+  const cIrr = colorScale(rows.map(r => r.irr)), cMoic = colorScale(rows.map(r => r.moic));
+  const bg = c => c ? ` style="background:${c}"` : '';
+  const k = x => fmtNum(x, 0);
+  const irrTitle = r => r.irr === null
+    ? ' title="Needs at least one investment and one return or current value"'
+    : ` title="${r.flows.length} cashflows${r.current ? ` + current value ${fmtNum(r.current, 0)} on ${fmtDate(r.valDate)}` : ''}"`;
+  let h = '<thead><tr>' + th('name', 'Investment', 'l') + th('status', 'Status', 'l') + th('first', 'First<br>investment') +
+    th('invested', 'Invested<br>$K') + th('returned', 'Returned<br>$K') + th('current', 'Current<br>value $K') +
+    th('gain', 'Gain<br>$K') + th('moic', 'MOIC') + th('irr', 'IRR') + '</tr></thead><tbody>';
+  if (!rows.length) h += `<tr><td class="l muted" colspan="9" style="padding:12px">No investments yet.${admin ? ' Add one or upload a cashflow file.' : ''}</td></tr>`;
+  sortByKey(rows, roiSort, ['name', 'status', 'first']).forEach(r => {
+    h += `<tr class="class-row" onclick="toggleRoi('${r.id}')" title="${r.open ? 'Hide' : 'Show'} cashflows">` +
+      `<td class="l"><span class="caret">${r.open ? '▾' : '▸'}</span>${escapeHtml(r.name)} <span class="cnt">(${r.flows.length})</span></td>` +
+      `<td class="l ${r.held ? '' : 'muted'}">${r.status}</td><td>${fmtDate(r.first)}</td>` +
+      `<td>${k(r.invested)}</td><td>${k(r.returned)}</td><td>${r.held ? k(r.current) : ''}</td>` +
+      `<td class="${r.gain < 0 ? 'neg' : ''}">${k(r.gain)}</td>` +
+      `<td${bg(cMoic(r.moic))}>${fmtMoic(r.moic)}</td><td${bg(cIrr(r.irr))}${irrTitle(r)}>${fmtIrr(r.irr)}</td></tr>`;
+    if (r.open) h += `<tr class="roi-detail"><td colspan="9">${roiDetailHtml(r, admin)}</td></tr>`;
+  });
+  if (rows.length) {
+    h += `<tr class="total"><td class="l">Total, all investments</td><td></td><td>${fmtDate(total.first)}</td>` +
+      `<td>${k(total.invested)}</td><td>${k(total.returned)}</td><td>${k(total.current)}</td>` +
+      `<td class="${total.gain < 0 ? 'neg' : ''}">${k(total.gain)}</td><td>${fmtMoic(total.moic)}</td><td>${fmtIrr(total.irr)}</td></tr>`;
+  }
+  tbl.innerHTML = h + '</tbody>';
+  renderRoiPreview();
+}
+
+// The expanded panel under an investment: its settings and its cashflows.
+function roiDetailHtml(r, admin) {
+  const dis = admin ? '' : ' disabled';
+  const linked = new Set(Object.entries(roiData).filter(([id, inv]) => id !== r.id && inv.accountId).map(([, inv]) => inv.accountId));
+  const accts = sortedAccounts().filter(a => !a.ticker && (!linked.has(a.id) || a.id === r.inv.accountId));
+  const acctOpts = `<option value="">(none: no longer held)</option>` + accts.map(a =>
+    `<option value="${a.id}"${a.id === r.inv.accountId ? ' selected' : ''}>${escapeHtml(a.name || '(no name)')}${a.owner ? ' — ' + escapeHtml(a.owner) : ''}</option>`).join('');
+  const missing = r.inv.accountId && !r.acct ? ' <span class="muted">(its account was deleted)</span>' : '';
+  let h = `<div class="roi-settings">` +
+    `<label>Name <input type="text" maxlength="200" value="${escapeHtml(r.inv.name || '')}"${dis} onchange="roiRename('${r.id}', this)"></label>` +
+    `<label>Linked account <select${dis} onchange="roiLink('${r.id}', this)">${acctOpts}</select>${missing}</label>` +
+    (r.held
+      ? `<label>Current value $K <input type="text" class="num" style="width:110px" value="${+(Number(r.acct.value) || 0).toFixed(4)}"${dis} ` +
+        `onchange="roiValue('${r.id}', this)"></label>` +
+        `<label>Valuation date <input type="date" value="${r.inv.valuationDate || ''}"${dis} onchange="roiValDate('${r.id}', this)">` +
+        `<span class="muted" style="font-size:12px">${r.inv.valuationDate ? '' : ' (blank = today)'}</span></label>`
+      : '') +
+    (admin ? `<button class="btn btn-danger btn-sm" onclick="roiDelete('${r.id}')">Delete investment</button>` : '') + `</div>`;
+  h += `<table class="ed roi-cf"><thead><tr><th>Date</th><th style="text-align:right">Amount $K</th>${admin ? '<th></th>' : ''}</tr></thead><tbody>`;
+  if (!r.flows.length) h += `<tr><td colspan="3" class="muted">No cashflows yet.</td></tr>`;
+  r.flows.forEach(f => {
+    h += admin
+      ? `<tr><td><input type="date" value="${f.date}" onchange="roiCfEdit('${r.id}', '${f.cfId}', 'date', this)"></td>` +
+        `<td><input type="text" class="num${f.amount < 0 ? ' neg' : ''}" style="width:110px" value="${+f.amount.toFixed(4)}" onchange="roiCfEdit('${r.id}', '${f.cfId}', 'amount', this)"></td>` +
+        `<td><button class="rm" title="Delete this cashflow" onclick="roiCfDelete('${r.id}', '${f.cfId}')">×</button></td></tr>`
+      : `<tr><td>${fmtDate(f.date)}</td><td class="num${f.amount < 0 ? ' neg' : ''}">${fmtNum(f.amount, 1)}</td></tr>`;
+  });
+  if (r.held && r.current) h += `<tr class="roi-term"><td>${fmtDate(r.valDate)} <span class="muted">current value</span></td><td class="num">${fmtNum(r.current, 1)}</td>${admin ? '<td></td>' : ''}</tr>`;
+  h += '</tbody></table>';
+  if (admin) h += `<button class="btn btn-secondary btn-sm" onclick="roiCfAdd('${r.id}')">+ Add cashflow</button>`;
+  return h;
+}
+
+/* ── Editing (Admins). Each change saves at once. ── */
+async function roiWrite(path, value, what) {
+  if (!isAdminUser()) return false;
+  try { await db.ref(path).set(value); return true; }
+  catch (e) {
+    alert(`Could not save ${what}: ${e.message}\n\nIf this says "permission denied", publish the updated database rules (see SETUP.md).`);
+    renderRoi(); return false;
+  }
+}
+async function addRoiInvestment() {
+  if (!isAdminUser()) return;
+  const name = (prompt('Name of the investment:') || '').trim();
+  if (!name) return;
+  if (name.length > 200) { alert('Please use a name of 200 characters or fewer.'); return; }
+  const id = db.ref('household/roi').push().key;
+  roiOpen.add(id);
+  await roiWrite(`household/roi/${id}`, { name, createdAt: firebase.database.ServerValue.TIMESTAMP }, 'the investment');
+}
+function roiRename(id, inp) {
+  const v = inp.value.trim();
+  if (!v || v.length > 200) { alert('The name must be 1–200 characters.'); renderRoi(); return; }
+  roiWrite(`household/roi/${id}/name`, v, 'the name');
+}
+function roiLink(id, sel) { roiWrite(`household/roi/${id}/accountId`, sel.value || null, 'the linked account'); }
+function roiValue(id, inp) {
+  const inv = roiData[id], acct = inv && roiAccount(inv);
+  if (!acct) return;
+  const n = num(inp.value);
+  if (n === null || !isFinite(n) || (n < 0 && !allowsNegativeValue(acct))) { alert('Enter a current value in $K (0 or more).'); renderRoi(); return; }
+  roiWrite(`household/assets/${inv.accountId}/value`, n, 'the current value');
+}
+function roiValDate(id, inp) { roiWrite(`household/roi/${id}/valuationDate`, inp.value ? parseRoiDate(inp.value) : null, 'the valuation date'); }
+function roiCfEdit(id, cfId, field, inp) {
+  const v = field === 'date' ? parseRoiDate(inp.value) : num(inp.value);
+  if (field === 'date' ? !v : (v === null || !isFinite(v))) { alert(field === 'date' ? 'Enter a valid date.' : 'Enter an amount in $K (negative = invested).'); renderRoi(); return; }
+  roiWrite(`household/roi/${id}/cashflows/${cfId}/${field}`, v, 'the cashflow');
+}
+function roiCfAdd(id) {
+  const cfId = db.ref('household/roi').push().key;
+  roiWrite(`household/roi/${id}/cashflows/${cfId}`, { date: todayIso(), amount: 0 }, 'the cashflow');
+}
+function roiCfDelete(id, cfId) {
+  if (!confirm('Delete this cashflow?')) return;
+  roiWrite(`household/roi/${id}/cashflows/${cfId}`, null, 'the cashflow');
+}
+function roiDelete(id) {
+  const inv = roiData[id];
+  if (!inv || !confirm(`Delete "${inv.name}" and all ${Object.keys(inv.cashflows || {}).length} of its cashflows?\n\nIts linked account on the Setup tab isn't affected.`)) return;
+  roiOpen.delete(id);
+  roiWrite(`household/roi/${id}`, null, 'the deletion');
+}
+
+/* ── Template ── */
+async function downloadRoiTemplate() {
+  try {
+    if (!window.XLSX) await loadScript(SHEETJS_URL);
+    const ex = [['investment', 'date', 'amount_k'],
+      ['Example Co (seed)', new Date(2021, 2, 15), -50], ['Example Co (seed)', new Date(2023, 5, 1), -25],
+      ['Example Co (seed)', new Date(2025, 8, 30), 40]];
+    const ws = XLSX.utils.aoa_to_sheet(ex, { cellDates: true });
+    ws['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }];
+    const notes = XLSX.utils.aoa_to_sheet([
+      ['Cashflow upload (ROI on Illiquid assets tab). Only the first sheet is read.'],
+      ['Columns: investment, date, amount_k. The investment column is optional: leave it out and you choose the investment when you upload.'],
+      ['amount_k is in $ thousands: negative = cash invested, positive = cash returned (e.g. -50 = $50,000 invested).'],
+      ['Dates can be Excel dates, YYYY-MM-DD or M/D/YYYY.'],
+      ['Before saving, the preview flags rows that duplicate a stored cashflow (or another row) and, for investments that already have cashflows, rows that are new.'],
+    ]);
+    notes['!cols'] = [{ wch: 120 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cashflows');
+    XLSX.utils.book_append_sheet(wb, notes, 'Instructions');
+    XLSX.writeFile(wb, 'roi-cashflows-template.xlsx');
+  } catch (e) { alert('Could not create the Excel file: ' + e.message); }
+}
+
+/* ── Upload with checks (Admins) ──
+   Each row gets a target investment (from its investment column, matched by name, or the one the
+   Admin picks), then a flag: problem (bad date / amount), duplicate (same date and amount as a
+   stored cashflow of that investment, or an earlier row for it), or new (the investment already has
+   cashflows). Flagged rows must be confirmed, edited or deleted, and every unmatched name or the
+   file's investment chosen, before Save. */
+async function handleRoiUpload(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file || !isAdminUser()) return;
+  let raw;
+  try { raw = await readUploadRows(file); } catch (e) { alert('Could not read the file: ' + e.message); return; }
+  raw = raw.filter(r => r.some(v => String(v ?? '').trim() !== ''));
+  if (!raw.length) { alert('The file is empty.'); return; }
+  const hdr = raw[0].map(h => String(h).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
+  let iDate = hdr.findIndex(h => h === 'date' || h === 'cashflow_date'), iAmt = hdr.findIndex(h => /^amount/.test(h));
+  let iInv = hdr.findIndex(h => ['investment', 'investment_name', 'name', 'company', 'asset'].includes(h));
+  let body = raw.slice(1);
+  if (iDate < 0 || iAmt < 0) {
+    // No header row: accept "date, amount" (or "investment, date, amount") straight away.
+    const r0 = raw[0];
+    if (r0.length >= 2 && parseRoiDate(r0[0]) && isFinite(num(r0[1]))) { iDate = 0; iAmt = 1; iInv = -1; body = raw; }
+    else if (r0.length >= 3 && parseRoiDate(r0[1]) && isFinite(num(r0[2]))) { iInv = 0; iDate = 1; iAmt = 2; body = raw; }
+    else { alert('The file needs "date" and "amount_k" columns (and optionally "investment"). Download the template to see the layout.'); return; }
+  }
+  const rows = body.map((r, i) => {
+    const a = num(r[iAmt]);
+    return { line: i + (body === raw ? 1 : 2), invName: iInv >= 0 ? String(r[iInv] ?? '').trim() : '',
+             rawDate: r[iDate], rawAmt: r[iAmt], date: parseRoiDate(r[iDate]), amount: a === null || !isFinite(a) ? null : a, res: '' };
+  });
+  const names = {};
+  if (iInv >= 0) rows.forEach(r => {
+    const key = r.invName.toLowerCase();
+    if (key && !names[key]) {
+      const match = Object.entries(roiData).find(([, inv]) => String(inv.name || '').trim().toLowerCase() === key && key);
+      names[key] = { name: r.invName, choice: match ? match[0] : '', matched: !!match };
+    }
+  });
+  pendingRoi = { filename: file.name, hasInv: iInv >= 0, rows, names,
+                 target: '', newName: file.name.replace(/\.[^.]+$/, '') };
+  renderRoiPreview();
+  document.getElementById('roi-preview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// Where a row's cashflow goes: an investment id, 'new:<key>' (a new investment), or 'skip' / '' (undecided).
+function roiRowTarget(r) {
+  const p = pendingRoi;
+  if (!p.hasInv) return p.target === 'new' ? 'new:' : p.target;
+  if (!r.invName) return '';                 // flagged as a problem (no investment name)
+  const n = p.names[r.invName.toLowerCase()];
+  if (!n) return 'skip';
+  return n.choice === 'new' ? 'new:' + r.invName.toLowerCase() : n.choice;
+}
+function evaluateRoiRows() {
+  const seen = {};
+  pendingRoi.rows.forEach(r => {
+    r.target = roiRowTarget(r);
+    if (r.res === 'delete' || r.target === 'skip') { r.flag = r.res === 'delete' ? 'deleted' : 'skipped'; return; }
+    if (!r.date || r.amount === null || (pendingRoi.hasInv && !r.invName)) {
+      r.flag = 'problem';
+      r.dupWhy = pendingRoi.hasInv && !r.invName ? 'no investment name' : !r.date ? 'not a valid date' : 'not a number';
+      return;
+    }
+    const key = r.date + '|' + r.amount.toFixed(6);
+    const stored = r.target && !r.target.startsWith('new:') ? roiCashflows(roiData[r.target] || {}) : [];
+    const dupStored = stored.some(f => f.date + '|' + f.amount.toFixed(6) === key);
+    const bucket = seen[r.target] || (seen[r.target] = new Set());
+    const dupFile = bucket.has(key);
+    bucket.add(key);
+    r.flag = dupStored || dupFile ? 'duplicate' : stored.length ? 'new' : 'ok';
+    r.dupWhy = dupStored ? 'matches a stored cashflow' : dupFile ? 'repeats an earlier row in this file' : '';
+  });
+}
+function roiPreviewState() {
+  const p = pendingRoi;
+  evaluateRoiRows();
+  const undecidedNames = p.hasInv ? Object.values(p.names).filter(n => !n.choice).length : 0;
+  const noTarget = !p.hasInv && (!p.target || (p.target === 'new' && !p.newName.trim()));
+  const unresolved = p.rows.filter(r => (r.flag === 'problem') || ((r.flag === 'duplicate' || r.flag === 'new') && !r.res)).length;
+  const toAdd = p.rows.filter(r => ['ok', 'new', 'duplicate'].includes(r.flag) && (r.flag === 'ok' || r.res));
+  return { undecidedNames, noTarget, unresolved, toAdd, ready: !undecidedNames && !noTarget && !unresolved && toAdd.length > 0 };
+}
+function renderRoiPreview() {
+  const box = document.getElementById('roi-preview');
+  if (!box) return;
+  if (!pendingRoi) { box.innerHTML = ''; return; }
+  const p = pendingRoi, st = roiPreviewState();
+  const invOpts = sel => Object.entries(roiData).sort((a, b) => String(a[1].name).localeCompare(String(b[1].name)))
+    .map(([id, inv]) => `<option value="${id}"${sel === id ? ' selected' : ''}>${escapeHtml(inv.name)}</option>`).join('');
+  let h = `<div class="info-box roi-up"><div class="roi-up-head"><strong>Upload preview — ${escapeHtml(p.filename)}</strong>` +
+    ` <span class="muted">${p.rows.length} row${p.rows.length === 1 ? '' : 's'}</span></div>`;
+  if (!p.hasInv) {
+    h += `<div class="roi-up-choice"><span class="roi-up-line">These cashflows belong to <select onchange="roiSetTarget(this.value)">` +
+      `<option value=""${p.target ? '' : ' selected'}>— choose —</option>${invOpts(p.target)}` +
+      `<option value="new"${p.target === 'new' ? ' selected' : ''}>+ New investment…</option></select>` +
+      (p.target === 'new' ? ` named <input type="text" maxlength="200" value="${escapeHtml(p.newName)}" oninput="pendingRoi.newName = this.value" onchange="renderRoiPreview()">` : '') + `</span></div>`;
+  } else {
+    const un = Object.entries(p.names).filter(([, n]) => !n.matched);
+    if (un.length) {
+      h += `<div class="roi-up-choice"><div>These investment names don't match an investment on this tab:</div>` + un.map(([key, n]) =>
+        `<div class="roi-up-name">“${escapeHtml(n.name || '(blank)')}” → <select onchange="roiSetName(this.dataset.k, this.value)" data-k="${escapeHtml(key)}">` +
+        `<option value=""${n.choice ? '' : ' selected'}>— choose —</option>` +
+        (n.name ? `<option value="new"${n.choice === 'new' ? ' selected' : ''}>+ Create a new investment with this name</option>` : '') +
+        `<optgroup label="Add to an existing investment">${invOpts(n.choice)}</optgroup>` +
+        `<option value="skip"${n.choice === 'skip' ? ' selected' : ''}>Skip these rows</option></select></div>`).join('') + `</div>`;
+    }
+  }
+  const flagHtml = r => ({
+    ok: '<span class="badge badge-ok">ready</span>',
+    new: '<span class="badge roi-new">new</span>',
+    duplicate: `<span class="badge badge-stale" title="${escapeHtml(r.dupWhy)}">duplicate</span>`,
+    problem: `<span class="badge roi-bad" title="${escapeHtml(r.dupWhy)}">problem: ${escapeHtml(r.dupWhy)}</span>`,
+    deleted: '<span class="muted">deleted</span>', skipped: '<span class="muted">skipped</span>',
+  }[r.flag] || '');
+  const tgtName = r => r.target.startsWith('new:') ? (p.hasInv ? r.invName : p.newName) + ' (new)' : roiData[r.target] ? roiData[r.target].name : '';
+  h += `<div class="tbl-wrap"><table class="ed roi-up-tbl"><thead><tr><th>Line</th>${p.hasInv ? '<th>Investment</th>' : ''}<th>Date</th>` +
+    `<th style="text-align:right">Amount $K</th><th>Check</th><th>Action</th></tr></thead><tbody>`;
+  p.rows.forEach((r, i) => {
+    const flagged = ['problem', 'duplicate', 'new'].includes(r.flag);
+    const dateCell = r.editing ? `<input type="date" value="${r.date || ''}" onchange="roiEditRow(${i}, 'date', this.value)">`
+      : r.date ? fmtDate(r.date) : `<span class="neg">${escapeHtml(String(r.rawDate ?? '')) || '(blank)'}</span>`;
+    const amtCell = r.editing ? `<input type="text" class="num" style="width:100px" value="${r.amount ?? ''}" onchange="roiEditRow(${i}, 'amount', this.value)">`
+      : r.amount !== null ? `<span class="${r.amount < 0 ? 'neg' : ''}">${fmtNum(r.amount, 1)}</span>` :`<span class="neg">${escapeHtml(String(r.rawAmt ?? '')) || '(blank)'}</span>`;
+    const act = r.flag === 'deleted' ? `<button class="btn-link" onclick="roiResolve(${i}, '')">Undo</button>`
+      : !flagged ? (r.flag === 'ok' ? `<button class="btn-link" onclick="roiResolve(${i}, 'delete')">Delete</button>` : '')
+      : (r.flag !== 'problem' ? `<button class="btn-link${r.res === 'confirm' ? ' on' : ''}" onclick="roiResolve(${i}, 'confirm')">${r.res === 'confirm' ? '✓ Confirmed' : 'Confirm'}</button>` : '') +
+        `<button class="btn-link" onclick="roiResolve(${i}, 'edit')">${r.editing ? 'Done' : 'Edit'}</button>` +
+        `<button class="btn-link" onclick="roiResolve(${i}, 'delete')">Delete</button>`;
+    h += `<tr class="${r.flag === 'deleted' || r.flag === 'skipped' ? 'muted' : ''}"><td>${r.line}</td>` +
+      (p.hasInv ? `<td>${escapeHtml(r.invName)}${r.target && r.target !== 'skip' && tgtName(r) !== r.invName ? ` <span class="muted">→ ${escapeHtml(tgtName(r))}</span>` : ''}</td>` : '') +
+      `<td>${dateCell}</td><td class="num">${amtCell}</td><td>${flagHtml(r)}</td><td class="roi-act">${act}</td></tr>`;
+  });
+  h += '</tbody></table></div>';
+  const nNew = p.rows.filter(r => r.flag === 'new' && !r.res).length, nDup = p.rows.filter(r => r.flag === 'duplicate' && !r.res).length;
+  const blockers = [st.noTarget && 'choose the investment', st.undecidedNames && `decide ${st.undecidedNames} unmatched name${st.undecidedNames === 1 ? '' : 's'}`,
+    st.unresolved && `confirm, edit or delete ${st.unresolved} flagged row${st.unresolved === 1 ? '' : 's'}`].filter(Boolean);
+  h += `<div class="row-actions">` +
+    (nNew ? `<button class="btn btn-secondary btn-sm" onclick="roiResolveAll('new', 'confirm')">Confirm all ${nNew} new</button>` : '') +
+    (nDup ? `<button class="btn btn-secondary btn-sm" onclick="roiResolveAll('duplicate', 'delete')">Delete all ${nDup} duplicates</button>` : '') +
+    `<button class="btn btn-primary btn-sm" onclick="saveRoiUpload()"${st.ready ? '' : ' disabled'}>Save ${st.toAdd.length} cashflow${st.toAdd.length === 1 ? '' : 's'}</button>` +
+    `<button class="btn btn-secondary btn-sm" onclick="pendingRoi = null; renderRoiPreview()">Cancel</button>` +
+    `<span class="status">${blockers.length ? 'To save: ' + blockers.join('; ') + '.' : ''}</span></div></div>`;
+  box.innerHTML = h;
+}
+function roiSetTarget(v) { pendingRoi.target = v; renderRoiPreview(); }
+function roiSetName(key, v) { pendingRoi.names[key].choice = v; renderRoiPreview(); }
+function roiResolve(i, action) {
+  const r = pendingRoi.rows[i];
+  if (action === 'edit') { r.editing = !r.editing; if (!r.editing && r.date && r.amount !== null) r.res = 'confirm'; }
+  else { r.res = r.res === action && action === 'confirm' ? '' : action; r.editing = false; }
+  renderRoiPreview();
+}
+function roiResolveAll(flag, action) {
+  evaluateRoiRows();
+  pendingRoi.rows.forEach(r => { if (r.flag === flag && !r.res) r.res = action; });
+  renderRoiPreview();
+}
+function roiEditRow(i, field, v) {
+  const r = pendingRoi.rows[i];
+  if (field === 'date') { r.date = parseRoiDate(v); r.rawDate = v; }
+  else { const n = num(v); r.amount = n === null || !isFinite(n) ? null : n; r.rawAmt = v; }
+  r.res = r.date && r.amount !== null ? 'confirm' : '';
+  renderRoiPreview();
+}
+async function saveRoiUpload() {
+  if (!isAdminUser() || !pendingRoi) return;
+  const p = pendingRoi, st = roiPreviewState();
+  if (!st.ready) return;
+  const updates = {}, newIds = {}, touched = new Set();
+  st.toAdd.forEach(r => {
+    let id = r.target;
+    if (id.startsWith('new:')) {
+      if (!newIds[id]) {
+        newIds[id] = db.ref('household/roi').push().key;
+        updates[`${newIds[id]}/name`] = (p.hasInv ? r.invName : p.newName.trim()).slice(0, 200);
+        updates[`${newIds[id]}/createdAt`] = firebase.database.ServerValue.TIMESTAMP;
+      }
+      id = newIds[id];
+    }
+    updates[`${id}/cashflows/${db.ref('household/roi').push().key}`] = { date: r.date, amount: r.amount };
+    touched.add(id);
+  });
+  try {
+    await db.ref('household/roi').update(updates);
+    await db.ref('household/uploads').push({ at: firebase.database.ServerValue.TIMESTAMP, by: currentUser.email, source: 'roi-cashflows',
+                                             filename: p.filename, changed: st.toAdd.length });
+    touched.forEach(id => roiOpen.add(id));
+    pendingRoi = null;
+    renderRoi();
+  } catch (e) {
+    alert('Could not save the cashflows: ' + e.message + '\n\nIf this says "permission denied", publish the updated database rules (see SETUP.md).');
   }
 }
 
