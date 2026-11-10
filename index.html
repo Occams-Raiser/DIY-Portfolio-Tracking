@@ -309,6 +309,8 @@
   .roi-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 12px; }
   .roi-tools label.btn { text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer; }
   table.roi td.neg, .roi-cf .neg, .roi-up-tbl .neg { color: var(--red); }
+  table.roi-summary { margin-bottom: 14px; }
+  table.roi-summary tr.roi-sub td { font-weight: 500; }
   table.roi tr.roi-detail > td { background: #fafafa; text-align: left; padding: 10px 16px 14px 30px; }
   .roi-settings { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 10px; }
   .roi-settings label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 600; color: #555;
@@ -318,6 +320,7 @@
   table.ed.roi-cf { width: auto; min-width: 300px; margin-bottom: 8px; }
   table.ed.roi-cf input { font-size: 13.5px; padding: 4px 8px; width: auto; }
   table.ed.roi-cf input.num, table.ed.roi-up-tbl input.num, td.num, input.num { text-align: right; }
+  input.date-box, table.ed.roi-cf input.date-box { width: 110px; }
   table.ed.roi-cf tr.roi-term td { font-style: italic; color: #555; }
   .roi-up { margin-bottom: 14px; }
   .roi-up-head { margin-bottom: 8px; }
@@ -628,6 +631,7 @@
         investment with no account is no longer held and has no current value. Click a row to see and edit its cashflows.
         <span id="roi-readonly-note" class="hidden">Only Admins can change these.</span>
       </p>
+      <div class="tbl-wrap"><table class="alloc roi roi-summary" id="roi-summary"></table></div>
       <div class="row-actions admin-only roi-tools">
         <button class="btn btn-primary btn-sm" onclick="addRoiInvestment()">+ Add investment</button>
         <label class="btn btn-secondary btn-sm" style="margin:0">Upload cashflows…
@@ -3103,6 +3107,9 @@ function parseRoiDate(v) {
   if (chk.getUTCFullYear() !== y || chk.getUTCMonth() !== m - 1 || chk.getUTCDate() !== d || y < 1900 || y > 2200) return null;
   return `${y}-${pad2(m)}-${pad2(d)}`;
 }
+// A typed date box (M/D/YYYY or YYYY-MM-DD). Not a native date input: those fire "change" after
+// each typed part, and the immediate save + redraw would cut off the typing.
+const dateBox = (iso, attrs) => `<input type="text" class="date-box" placeholder="M/D/YYYY" maxlength="10" value="${iso ? fmtDate(iso) : ''}" ${attrs}>`;
 const isoDays = iso => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 864e5;
 
 // Excel's XIRR: the annual rate r with Σ amount / (1 + r)^(days from the first date / 365) = 0.
@@ -3163,8 +3170,8 @@ function computeRoi() {
     return { id, inv, name: inv.name || '(unnamed)', acct, held: !!acct, status: acct ? 'Held' : 'Exited',
              flows, valDate, ...m, open: roiOpen.has(id) };
   });
-  const all = roiMetrics(rows.flatMap(r => r.flows), rows.map(r => ({ amount: r.current, date: r.valDate })));
-  return { rows, total: all };
+  const sum = rs => ({ n: rs.length, ...roiMetrics(rs.flatMap(r => r.flows), rs.map(r => ({ amount: r.current, date: r.valDate }))) });
+  return { rows, total: sum(rows), held: sum(rows.filter(r => r.held)), exited: sum(rows.filter(r => !r.held)) };
 }
 
 function setRoiSort(key) {
@@ -3181,7 +3188,7 @@ function renderRoi() {
   if (!tbl || !currentUser) return;
   const admin = isAdminUser();
   document.getElementById('roi-readonly-note').classList.toggle('hidden', admin);
-  const { rows, total } = computeRoi();
+  const { rows, total, held, exited } = computeRoi();
   const th = (key, label, cls = '') => {
     const on = roiSort.key === key;
     return `<th class="sortable ${cls}" onclick="setRoiSort('${key}')">${label}` +
@@ -3212,6 +3219,19 @@ function renderRoi() {
       `<td class="${total.gain < 0 ? 'neg' : ''}">${k(total.gain)}</td><td>${fmtMoic(total.moic)}</td><td>${fmtIrr(total.irr)}</td></tr>`;
   }
   tbl.innerHTML = h + '</tbody>';
+  // Summary at the top: Held and Exited subtotals, then the same total as the table's bottom row.
+  const sumTbl = document.getElementById('roi-summary');
+  if (sumTbl) {
+    const line = (label, s, cls, showCur) => `<tr class="${cls}"><td class="l">${label}</td><td>${s.n}</td><td>${fmtDate(s.first)}</td>` +
+      `<td>${k(s.invested)}</td><td>${k(s.returned)}</td><td>${showCur ? k(s.current) : ''}</td>` +
+      `<td class="${s.gain < 0 ? 'neg' : ''}">${k(s.gain)}</td><td>${fmtMoic(s.moic)}</td><td>${fmtIrr(s.irr)}</td></tr>`;
+    sumTbl.innerHTML = rows.length
+      ? '<thead><tr><th class="l">Summary</th><th>Count</th><th>First<br>investment</th><th>Invested<br>$K</th><th>Returned<br>$K</th>' +
+        '<th>Current<br>value $K</th><th>Gain<br>$K</th><th>MOIC</th><th>IRR</th></tr></thead><tbody>' +
+        line('Held', held, 'roi-sub', true) + line('Exited', exited, 'roi-sub', false) +
+        line('Total, all investments', total, 'total', true) + '</tbody>'
+      : '';
+  }
   renderRoiPreview();
 }
 
@@ -3229,7 +3249,7 @@ function roiDetailHtml(r, admin) {
     (r.held
       ? `<label>Current value $K <input type="text" class="num" style="width:110px" value="${+(Number(r.acct.value) || 0).toFixed(4)}"${dis} ` +
         `onchange="roiValue('${r.id}', this)"></label>` +
-        `<label>Valuation date <input type="date" value="${r.inv.valuationDate || ''}"${dis} onchange="roiValDate('${r.id}', this)">` +
+        `<label>Valuation date ${dateBox(r.inv.valuationDate, `${dis} onchange="roiValDate('${r.id}', this)"`)}` +
         `<span class="muted" style="font-size:12px">${r.inv.valuationDate ? '' : ' (blank = today)'}</span></label>`
       : '') +
     (admin ? `<button class="btn btn-danger btn-sm" onclick="roiDelete('${r.id}')">Delete investment</button>` : '') + `</div>`;
@@ -3237,7 +3257,7 @@ function roiDetailHtml(r, admin) {
   if (!r.flows.length) h += `<tr><td colspan="3" class="muted">No cashflows yet.</td></tr>`;
   r.flows.forEach(f => {
     h += admin
-      ? `<tr><td><input type="date" value="${f.date}" onchange="roiCfEdit('${r.id}', '${f.cfId}', 'date', this)"></td>` +
+      ? `<tr><td>${dateBox(f.date, `onchange="roiCfEdit('${r.id}', '${f.cfId}', 'date', this)"`)}</td>` +
         `<td><input type="text" class="num${f.amount < 0 ? ' neg' : ''}" style="width:110px" value="${+f.amount.toFixed(4)}" onchange="roiCfEdit('${r.id}', '${f.cfId}', 'amount', this)"></td>` +
         `<td><button class="rm" title="Delete this cashflow" onclick="roiCfDelete('${r.id}', '${f.cfId}')">×</button></td></tr>`
       : `<tr><td>${fmtDate(f.date)}</td><td class="num${f.amount < 0 ? ' neg' : ''}">${fmtNum(f.amount, 1)}</td></tr>`;
@@ -3279,10 +3299,14 @@ function roiValue(id, inp) {
   if (n === null || !isFinite(n) || (n < 0 && !allowsNegativeValue(acct))) { alert('Enter a current value in $K (0 or more).'); renderRoi(); return; }
   roiWrite(`household/assets/${inv.accountId}/value`, n, 'the current value');
 }
-function roiValDate(id, inp) { roiWrite(`household/roi/${id}/valuationDate`, inp.value ? parseRoiDate(inp.value) : null, 'the valuation date'); }
+function roiValDate(id, inp) {
+  const v = inp.value.trim() ? parseRoiDate(inp.value) : null;
+  if (inp.value.trim() && !v) { alert('Enter a valid date, e.g. 3/31/2026.'); renderRoi(); return; }
+  roiWrite(`household/roi/${id}/valuationDate`, v, 'the valuation date');
+}
 function roiCfEdit(id, cfId, field, inp) {
   const v = field === 'date' ? parseRoiDate(inp.value) : num(inp.value);
-  if (field === 'date' ? !v : (v === null || !isFinite(v))) { alert(field === 'date' ? 'Enter a valid date.' : 'Enter an amount in $K (negative = invested).'); renderRoi(); return; }
+  if (field === 'date' ? !v : (v === null || !isFinite(v))) { alert(field === 'date' ? 'Enter a valid date, e.g. 3/31/2026.' : 'Enter an amount in $K (negative = invested).'); renderRoi(); return; }
   roiWrite(`household/roi/${id}/cashflows/${cfId}/${field}`, v, 'the cashflow');
 }
 function roiCfAdd(id) {
@@ -3442,7 +3466,7 @@ function renderRoiPreview() {
     `<th style="text-align:right">Amount $K</th><th>Check</th><th>Action</th></tr></thead><tbody>`;
   p.rows.forEach((r, i) => {
     const flagged = ['problem', 'duplicate', 'new'].includes(r.flag);
-    const dateCell = r.editing ? `<input type="date" value="${r.date || ''}" onchange="roiEditRow(${i}, 'date', this.value)">`
+    const dateCell = r.editing ? dateBox(r.date, `onchange="roiEditRow(${i}, 'date', this.value)"`)
       : r.date ? fmtDate(r.date) : `<span class="neg">${escapeHtml(String(r.rawDate ?? '')) || '(blank)'}</span>`;
     const amtCell = r.editing ? `<input type="text" class="num" style="width:100px" value="${r.amount ?? ''}" onchange="roiEditRow(${i}, 'amount', this.value)">`
       : r.amount !== null ? `<span class="${r.amount < 0 ? 'neg' : ''}">${fmtNum(r.amount, 1)}</span>` :`<span class="neg">${escapeHtml(String(r.rawAmt ?? '')) || '(blank)'}</span>`;
