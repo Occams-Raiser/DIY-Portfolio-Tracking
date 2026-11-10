@@ -348,6 +348,7 @@
   .money-chip .rm { font-size: 15px; padding: 0 4px; }
   .money-sug { margin-bottom: 4px; font-size: 12.5px; }
   .money-h4 { margin: 6px 0 0; font-size: 14px; }
+  .money-sort { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 13px; color: #555; }
   table.ed .err-cell { font-size: 12px; color: var(--red); }
 
   table.preview { border-collapse: collapse; font-size: 13px; width: 100%; margin-top: 10px; }
@@ -2919,9 +2920,15 @@ function moneyWords(s) {
   return new Set(String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean)
     .map(w => MONEY_ABBR[w] || w).filter(w => !MONEY_STOP.has(w)));
 }
-function moneyAccountLabel(a) {
+function moneyAccountName(a) {
   const nm = a.name || (a.ticker && prices[a.ticker] && prices[a.ticker].name) || a.ticker || '(no name)';
-  return `${nm}${a.ticker && nm !== a.ticker ? ` (${a.ticker})` : ''}${a.owner ? ' — ' + a.owner : ''}`;
+  return `${nm}${a.ticker && nm !== a.ticker ? ` (${a.ticker})` : ''}`;
+}
+function moneyAccountLabel(a) { return moneyAccountName(a) + (a.owner ? ' — ' + a.owner : ''); }
+let moneySortBy = 'owner';   // how the match dropdowns are sorted: 'owner' or 'name'
+function moneyOptionLabel(a) {
+  const owner = a.owner || '(no owner)';
+  return moneySortBy === 'owner' ? `${owner} — ${moneyAccountName(a)}` : `${moneyAccountName(a)} — ${owner}`;
 }
 function suggestMoneyAccount(line, accts, taken) {
   const mw = moneyWords(line.name);
@@ -2955,7 +2962,9 @@ function computeMoneyCompare() {
       out.push(row); return;
     }
     const priced = row.accts.filter(a => a.ticker);
-    if (priced.length) {
+    // Units only when Money gives a quantity: its cash lines ("… (Cash)", Net Worth lines) have
+    // only a value, so they're compared by value even when matched to a fund like a money market.
+    if (priced.length && typeof l.qty === 'number') {
       row.measure = 'units';
       row.app = priced.reduce((s, a) => s + (Number(a.units) || 0), 0);
       row.money = l.qty || 0;
@@ -2963,18 +2972,20 @@ function computeMoneyCompare() {
       row.status = Math.abs(row.diff) > MONEY_UNIT_TOL ? 'differs' : 'ok';
     } else {
       row.measure = 'value';
-      row.app = row.accts.reduce((s, a) => s + (accountValueK(a) || 0), 0);
+      const vals = row.accts.map(a => accountValueK(a));
+      row.app = vals.reduce((s, v) => s + (v || 0), 0);
       row.money = l.value || 0;
       row.diff = row.app - row.money;
       const big = Math.abs(row.diff) > MONEY_K_TOL && Math.abs(row.diff) > MONEY_PCT_TOL * Math.max(Math.abs(row.money), Math.abs(row.app));
-      row.status = big ? 'differs' : 'ok';
+      // A fund with no price yet has no value to compare.
+      row.status = vals.some(v => v === null) ? 'noprice' : big ? 'differs' : 'ok';
     }
     out.push(row);
   });
   // Accounts with something in them that no line in this file accounts for.
   const inFile = new Set(out.flatMap(r => r.ids));
   const appOnly = accts.filter(a => !inFile.has(a.id) && ((a.ticker ? Number(a.units) : Math.abs(accountValueK(a) || 0)) > 0.0005));
-  const order = { differs: 0, unmatched: 1, ok: 2, ignored: 3 };
+  const order = { differs: 0, unmatched: 1, noprice: 2, ok: 3, ignored: 4 };
   out.sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
   return { lines: out, appOnly, accts };
 }
@@ -2991,14 +3002,23 @@ function renderMoneyCompare() {
   let h = `<div class="money-sum"><strong>${escapeHtml(moneyFile.filename)}</strong>${moneyFile.asOf ? ` <span class="muted">(Money, as of ${escapeHtml(moneyFile.asOf)})</span>` : ''}: ` +
     `<span class="badge roi-bad">${count('differs')} differ</span> <span class="badge badge-stale">${count('unmatched')} not matched yet</span> ` +
     `<span class="badge roi-new">${appOnly.length} in the app only</span> <span class="badge badge-ok">${count('ok')} agree</span>` +
-    ` <button class="btn-link" onclick="moneyFile = null; renderMoneyCompare()">Close</button></div>`;
+    ` <button class="btn-link" onclick="moneyFile = null; renderMoneyCompare()">Close</button></div>` +
+    `<div class="money-sort">Account lists sorted by ` +
+    ['owner', 'name'].map(k => `<button type="button" class="btn btn-sm ben-btn${moneySortBy === k ? ' on' : ''}" aria-pressed="${moneySortBy === k}" ` +
+      `onclick="moneySortBy = '${k}'; renderMoneyCompare()">${k === 'owner' ? 'Account owner' : 'Account name'}</button>`).join('') + `</div>`;
+  // The "match to an account" dropdowns: "Owner — Name" sorted by owner (then name), or
+  // "Name — Owner" sorted by name (then owner).
+  const pickList = [...accts].sort((a, b) => {
+    const o = (a.owner || '~').localeCompare(b.owner || '~'), n = moneyAccountName(a).localeCompare(moneyAccountName(b));
+    return moneySortBy === 'owner' ? o || n : n || o;
+  });
   h += `<div class="tbl-wrap"><table class="ed money-tbl"><thead><tr><th>Money investment</th><th>App account(s)</th><th>Compared</th>` +
     `<th style="text-align:right">Money</th><th style="text-align:right">App</th><th style="text-align:right">App − Money</th><th>Result</th></tr></thead><tbody>`;
   lines.forEach(r => {
     const chips = r.accts.map(a => `<span class="money-chip">${escapeHtml(moneyAccountLabel(a))}` +
       `<button class="rm" title="Unmatch" onclick="moneyUnlink(this.dataset.k, '${a.id}')" data-k="${escapeHtml(r.key)}">×</button></span>`).join('');
-    const opts = accts.filter(a => !r.ids.includes(a.id))
-      .map(a => `<option value="${a.id}">${escapeHtml(moneyAccountLabel(a))}${linkedElsewhere.has(a.id) ? ' (matched to another line)' : ''}</option>`).join('');
+    const opts = pickList.filter(a => !r.ids.includes(a.id))
+      .map(a => `<option value="${a.id}">${escapeHtml(moneyOptionLabel(a))}${linkedElsewhere.has(a.id) ? ' (matched to another line)' : ''}</option>`).join('');
     const addSel = `<select class="money-add" data-k="${escapeHtml(r.key)}" data-n="${escapeHtml(r.name)}" onchange="if (this.value) moneyLink(this.dataset.k, this.dataset.n, this.value)">` +
       `<option value="">${r.ids.length ? '+ add another account…' : 'Match to an account…'}</option>${opts}</select>`;
     let acctCell, result;
@@ -3012,7 +3032,9 @@ function renderMoneyCompare() {
       result = '<span class="badge badge-stale">not matched</span>';
     } else {
       acctCell = chips + addSel;
-      result = r.status === 'ok' ? '<span class="badge badge-ok">agrees</span>' : '<span class="badge roi-bad">differs</span>';
+      result = r.status === 'ok' ? '<span class="badge badge-ok">agrees</span>'
+        : r.status === 'noprice' ? '<span class="badge badge-stale" title="A matched fund has no price yet, so its value is unknown. Refresh prices.">no price</span>'
+        : '<span class="badge roi-bad">differs</span>';
     }
     const moneyShown = r.status === 'unmatched' || r.status === 'ignored'
       ? (r.qty ? fmtNum(r.qty, 3) + ' units' : fmtNum(r.value, 1) + ' $K') : fmtMeasure(r, r.money);
