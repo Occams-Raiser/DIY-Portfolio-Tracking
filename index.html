@@ -310,6 +310,10 @@
   .roi-tools label.btn { text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer; }
   table.roi td.neg, .roi-cf .neg, .roi-up-tbl .neg { color: var(--red); }
   table.roi-summary { margin-bottom: 14px; }
+  .roi-filter { display: flex; gap: 14px; flex-wrap: wrap; margin: 4px 0 8px; }
+  .roi-filter .msel-btn { min-width: 240px; }
+  .roi-filter .msel-menu { min-width: 100%; white-space: nowrap; }
+  .roi-filter .msel-menu { max-height: 360px; overflow-y: auto; }
   table.roi-summary tr.roi-sub td { font-weight: 500; }
   table.roi tr.roi-detail > td { background: #fafafa; text-align: left; padding: 10px 16px 14px 30px; }
   .roi-settings { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 10px; }
@@ -639,6 +643,7 @@
         <button class="btn btn-secondary btn-sm" onclick="downloadRoiTemplate()">Download template</button>
       </div>
       <div id="roi-preview"></div>
+      <div id="roi-filter" class="roi-filter"></div>
       <div class="tbl-wrap"><table class="alloc roi" id="roi-table"></table></div>
     </div>
 
@@ -3167,11 +3172,15 @@ function computeRoi() {
     const valDate = inv.valuationDate || todayIso();
     const cur = acct ? accountValueK(acct) || 0 : 0;
     const m = roiMetrics(flows, [{ amount: cur, date: valDate }]);
-    return { id, inv, name: inv.name || '(unnamed)', acct, held: !!acct, status: acct ? 'Held' : 'Exited',
+    // Asset class: a held investment's comes from its account; an exited one's is set on the investment.
+    const cls = (acct ? acct.assetClass : inv.assetClass) || '';
+    return { id, inv, name: inv.name || '(unnamed)', acct, held: !!acct, status: acct ? 'Held' : 'Exited', cls,
              flows, valDate, ...m, open: roiOpen.has(id) };
   });
   const sum = rs => ({ n: rs.length, ...roiMetrics(rs.flatMap(r => r.flows), rs.map(r => ({ amount: r.current, date: r.valDate }))) });
-  return { rows, total: sum(rows), held: sum(rows.filter(r => r.held)), exited: sum(rows.filter(r => !r.held)) };
+  const picked = rows.filter(r => !roiExcluded.has(r.id) && !roiClsExcluded.has(r.cls || ROI_NO_CLASS));
+  return { rows, picked, total: sum(rows), selected: sum(picked),
+           held: sum(rows.filter(r => r.held)), exited: sum(rows.filter(r => !r.held)) };
 }
 
 function setRoiSort(key) {
@@ -3179,6 +3188,54 @@ function setRoiSort(key) {
   else { roiSort.key = key; roiSort.dir = ['name', 'status', 'first'].includes(key) ? 'asc' : 'desc'; }
   renderRoi();
 }
+/* ── Filters for the main table: Investments and Asset class (remembered on this device). Each
+   stores what is turned OFF, so investments / classes added later show by default. An investment
+   shows only if it passes both. The summary table above always covers all. ── */
+const ROI_FILTER_KEY = 'diy-roi-excluded-v1', ROI_CLS_FILTER_KEY = 'diy-roi-cls-excluded-v1';
+const ROI_NO_CLASS = '(no class)';
+const loadSet = key => { try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')); } catch (e) { return new Set(); } };
+let roiExcluded = loadSet(ROI_FILTER_KEY), roiClsExcluded = loadSet(ROI_CLS_FILTER_KEY);
+let roiFilterOpen = null;            // 'inv' | 'cls' | null
+let roiFilterOpts = { inv: [], cls: [] };
+function saveRoiFilter() {
+  try { localStorage.setItem(ROI_FILTER_KEY, JSON.stringify([...roiExcluded])); localStorage.setItem(ROI_CLS_FILTER_KEY, JSON.stringify([...roiClsExcluded])); }
+  catch (e) { /* private mode */ }
+}
+const roiExSet = dim => dim === 'cls' ? roiClsExcluded : roiExcluded;
+function setRoiFilterOpt(dim, v, on) { const s = roiExSet(dim); if (on) s.delete(v); else s.add(v); saveRoiFilter(); renderRoi(); }
+function setRoiFilterAll(dim, on) {
+  const s = on ? new Set() : new Set(roiFilterOpts[dim].map(o => o.v));
+  if (dim === 'cls') roiClsExcluded = s; else roiExcluded = s;
+  saveRoiFilter(); renderRoi();
+}
+function toggleRoiFilter(dim, ev) { if (ev) ev.stopPropagation(); roiFilterOpen = roiFilterOpen === dim ? null : dim; renderRoi(); }
+document.addEventListener('click', e => {
+  if (roiFilterOpen && !e.target.closest('#roi-filter')) { roiFilterOpen = null; renderRoi(); }
+});
+function renderRoiFilter(rows) {
+  const box = document.getElementById('roi-filter');
+  if (!box) return;
+  if (!rows.length) { box.innerHTML = ''; return; }
+  const classes = [...new Set(rows.map(r => r.cls || ROI_NO_CLASS))]
+    .sort((a, b) => (a === ROI_NO_CLASS) - (b === ROI_NO_CLASS) || listPos(ASSET_CLASSES, a) - listPos(ASSET_CLASSES, b) || a.localeCompare(b));
+  roiFilterOpts = {
+    inv: [...rows].sort((a, b) => a.name.localeCompare(b.name)).map(r => ({ v: r.id, label: r.name, note: r.status })),
+    cls: classes.map(c => ({ v: c, label: c, note: String(rows.filter(r => (r.cls || ROI_NO_CLASS) === c).length) })),
+  };
+  const menu = (dim, title) => {
+    const opts = roiFilterOpts[dim], ex = roiExSet(dim), on = o => !ex.has(o.v);
+    const nOn = opts.filter(on).length, allOn = nOn === opts.length;
+    const summary = allOn ? 'All' : !nOn ? 'None' : nOn <= 2 ? opts.filter(on).map(o => o.label).join(', ') : `${nOn} of ${opts.length}`;
+    return `<div class="msel"><span class="msel-lbl">${title}</span>` +
+      `<button type="button" class="msel-btn${allOn ? '' : ' filtered'}" onclick="toggleRoiFilter('${dim}', event)">${escapeHtml(summary)} <span class="msel-caret">▾</span></button>` +
+      (roiFilterOpen === dim ? `<div class="msel-menu"><label class="msel-all"><input type="checkbox" data-part="${nOn > 0 && !allOn ? 1 : ''}"${allOn ? ' checked' : ''} onchange="setRoiFilterAll('${dim}', this.checked)"> Select / deselect all</label>` +
+        opts.map(o => `<label><input type="checkbox"${on(o) ? ' checked' : ''} data-v="${escapeHtml(o.v)}" onchange="setRoiFilterOpt('${dim}', this.dataset.v, this.checked)"> ` +
+          `${escapeHtml(o.label)} <span class="muted">(${escapeHtml(o.note)})</span></label>`).join('') + `</div>` : '') + `</div>`;
+  };
+  box.innerHTML = menu('inv', 'Investments') + menu('cls', 'Asset class');
+  box.querySelectorAll('.msel-all input[data-part="1"]').forEach(el => { el.indeterminate = true; });
+}
+
 function toggleRoi(id) { if (roiOpen.has(id)) roiOpen.delete(id); else roiOpen.add(id); renderRoi(); }
 const fmtMoic = x => typeof x === 'number' && isFinite(x) ? x.toFixed(2) + '×' : '—';
 const fmtIrr = x => typeof x === 'number' && isFinite(x) ? fmtPct(x, 1) : '—';
@@ -3188,7 +3245,8 @@ function renderRoi() {
   if (!tbl || !currentUser) return;
   const admin = isAdminUser();
   document.getElementById('roi-readonly-note').classList.toggle('hidden', admin);
-  const { rows, total, held, exited } = computeRoi();
+  const { rows, picked, total, selected, held, exited } = computeRoi();
+  renderRoiFilter(rows);
   const th = (key, label, cls = '') => {
     const on = roiSort.key === key;
     return `<th class="sortable ${cls}" onclick="setRoiSort('${key}')">${label}` +
@@ -3204,7 +3262,8 @@ function renderRoi() {
     th('invested', 'Invested<br>$K') + th('returned', 'Returned<br>$K') + th('current', 'Current<br>value $K') +
     th('gain', 'Gain<br>$K') + th('moic', 'MOIC') + th('irr', 'IRR') + '</tr></thead><tbody>';
   if (!rows.length) h += `<tr><td class="l muted" colspan="9" style="padding:12px">No investments yet.${admin ? ' Add one or upload a cashflow file.' : ''}</td></tr>`;
-  sortByKey(rows, roiSort, ['name', 'status', 'first']).forEach(r => {
+  else if (!picked.length) h += `<tr><td class="l muted" colspan="9" style="padding:12px">No investments selected. Use the filters above.</td></tr>`;
+  sortByKey(picked, roiSort, ['name', 'status', 'first']).forEach(r => {
     h += `<tr class="class-row" onclick="toggleRoi('${r.id}')" title="${r.open ? 'Hide' : 'Show'} cashflows">` +
       `<td class="l"><span class="caret">${r.open ? '▾' : '▸'}</span>${escapeHtml(r.name)} <span class="cnt">(${r.flows.length})</span></td>` +
       `<td class="l ${r.held ? '' : 'muted'}">${r.status}</td><td>${fmtDate(r.first)}</td>` +
@@ -3213,10 +3272,11 @@ function renderRoi() {
       `<td${bg(cMoic(r.moic))}>${fmtMoic(r.moic)}</td><td${bg(cIrr(r.irr))}${irrTitle(r)}>${fmtIrr(r.irr)}</td></tr>`;
     if (r.open) h += `<tr class="roi-detail"><td colspan="9">${roiDetailHtml(r, admin)}</td></tr>`;
   });
-  if (rows.length) {
-    h += `<tr class="total"><td class="l">Total, all investments</td><td></td><td>${fmtDate(total.first)}</td>` +
-      `<td>${k(total.invested)}</td><td>${k(total.returned)}</td><td>${k(total.current)}</td>` +
-      `<td class="${total.gain < 0 ? 'neg' : ''}">${k(total.gain)}</td><td>${fmtMoic(total.moic)}</td><td>${fmtIrr(total.irr)}</td></tr>`;
+  if (picked.length) {
+    const t = selected, label = picked.length === rows.length ? 'Total, all investments' : 'Total, selected investments';
+    h += `<tr class="total"><td class="l">${label}</td><td></td><td>${fmtDate(t.first)}</td>` +
+      `<td>${k(t.invested)}</td><td>${k(t.returned)}</td><td>${k(t.current)}</td>` +
+      `<td class="${t.gain < 0 ? 'neg' : ''}">${k(t.gain)}</td><td>${fmtMoic(t.moic)}</td><td>${fmtIrr(t.irr)}</td></tr>`;
   }
   tbl.innerHTML = h + '</tbody>';
   // Summary at the top: Held and Exited subtotals, then the same total as the table's bottom row.
@@ -3246,6 +3306,12 @@ function roiDetailHtml(r, admin) {
   let h = `<div class="roi-settings">` +
     `<label>Name <input type="text" maxlength="200" value="${escapeHtml(r.inv.name || '')}"${dis} onchange="roiRename('${r.id}', this)"></label>` +
     `<label>Linked account <select${dis} onchange="roiLink('${r.id}', this)">${acctOpts}</select>${missing}</label>` +
+    (r.held
+      ? `<label>Asset class <span class="muted" style="font-size:13px;padding:6px 0">${escapeHtml(r.cls || '—')} (from the account)</span></label>`
+      : `<label>Asset class <select${dis} onchange="roiSetClass('${r.id}', this)"><option value="">—</option>` +
+        (r.inv.assetClass && !ASSET_CLASSES.includes(r.inv.assetClass) ? ASSET_CLASSES.concat([r.inv.assetClass]) : ASSET_CLASSES)
+          .map(c => `<option value="${escapeHtml(c)}"${c === r.inv.assetClass ? ' selected' : ''}>${escapeHtml(c)}</option>`).join('') +
+        `</select></label>`) +
     (r.held
       ? `<label>Current value $K <input type="text" class="num" style="width:110px" value="${+(Number(r.acct.value) || 0).toFixed(4)}"${dis} ` +
         `onchange="roiValue('${r.id}', this)"></label>` +
@@ -3291,6 +3357,7 @@ function roiRename(id, inp) {
   if (!v || v.length > 200) { alert('The name must be 1–200 characters.'); renderRoi(); return; }
   roiWrite(`household/roi/${id}/name`, v, 'the name');
 }
+function roiSetClass(id, sel) { roiWrite(`household/roi/${id}/assetClass`, sel.value || null, 'the asset class'); }
 function roiLink(id, sel) { roiWrite(`household/roi/${id}/accountId`, sel.value || null, 'the linked account'); }
 function roiValue(id, inp) {
   const inv = roiData[id], acct = inv && roiAccount(inv);
