@@ -310,6 +310,7 @@
   .roi-tools label.btn { text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer; }
   table.roi td.neg, .roi-cf .neg, .roi-up-tbl .neg { color: var(--red); }
   table.roi-summary { margin-bottom: 14px; }
+  table.roi td.roi-nocls { color: var(--red); font-style: italic; }
   .roi-filter { display: flex; gap: 14px; flex-wrap: wrap; margin: 4px 0 8px; }
   .roi-filter .msel-btn { min-width: 240px; }
   .roi-filter .msel-menu { min-width: 100%; white-space: nowrap; }
@@ -2030,10 +2031,13 @@ const OWNER_RENAMES = { 'wros': 'Dan & Alison' };
 function renameOwner(v) { return OWNER_RENAMES[String(v || '').trim().toLowerCase()] || v; }
 const PICK_FIELDS = ['assetClass', 'owner', 'beneficiary', 'beneficiary2', 'custodian', 'retirement'];
 
-// Only an illiquid Bonds account without a ticker may have a negative value (e.g. a loan or other
-// debt). The database rules check the same thing.
-function allowsNegativeValue(a) { return !a.ticker && a.liquidity === 'Illiquid' && a.assetClass === 'Bonds'; }
-const NEGATIVE_VALUE_RULE = 'a negative value is allowed only for an Illiquid account in Bonds (with no ticker).';
+// A negative value is allowed only without a ticker, for a Cash account (e.g. an overdrawn or
+// margin balance) or an illiquid Bonds account (a loan or other debt). The database rules check
+// the same thing.
+function allowsNegativeValue(a) {
+  return !a.ticker && (a.assetClass === 'Cash' || (a.liquidity === 'Illiquid' && a.assetClass === 'Bonds'));
+}
+const NEGATIVE_VALUE_RULE = 'a negative value is allowed only for a Cash account or an Illiquid account in Bonds (with no ticker).';
 
 function defaultLiquidity(ticker, assetClass) { return ticker || assetClass === 'Cash' ? 'Liquid' : 'Illiquid'; }
 
@@ -3185,14 +3189,14 @@ function computeRoi() {
 
 function setRoiSort(key) {
   if (roiSort.key === key) roiSort.dir = roiSort.dir === 'asc' ? 'desc' : 'asc';
-  else { roiSort.key = key; roiSort.dir = ['name', 'status', 'first'].includes(key) ? 'asc' : 'desc'; }
+  else { roiSort.key = key; roiSort.dir = ['name', 'status', 'cls', 'first'].includes(key) ? 'asc' : 'desc'; }
   renderRoi();
 }
 /* ── Filters for the main table: Investments and Asset class (remembered on this device). Each
    stores what is turned OFF, so investments / classes added later show by default. An investment
    shows only if it passes both. The summary table above always covers all. ── */
 const ROI_FILTER_KEY = 'diy-roi-excluded-v1', ROI_CLS_FILTER_KEY = 'diy-roi-cls-excluded-v1';
-const ROI_NO_CLASS = '(no class)';
+const ROI_NO_CLASS = 'Not set';
 const loadSet = key => { try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')); } catch (e) { return new Set(); } };
 let roiExcluded = loadSet(ROI_FILTER_KEY), roiClsExcluded = loadSet(ROI_CLS_FILTER_KEY);
 let roiFilterOpen = null;            // 'inv' | 'cls' | null
@@ -3258,23 +3262,26 @@ function renderRoi() {
   const irrTitle = r => r.irr === null
     ? ' title="Needs at least one investment and one return or current value"'
     : ` title="${r.flows.length} cashflows${r.current ? ` + current value ${fmtNum(r.current, 0)} on ${fmtDate(r.valDate)}` : ''}"`;
-  let h = '<thead><tr>' + th('name', 'Investment', 'l') + th('status', 'Status', 'l') + th('first', 'First<br>investment') +
+  let h = '<thead><tr>' + th('name', 'Investment', 'l') + th('status', 'Status', 'l') + th('cls', 'Asset class', 'l') + th('first', 'First<br>investment') +
     th('invested', 'Invested<br>$K') + th('returned', 'Returned<br>$K') + th('current', 'Current<br>value $K') +
     th('gain', 'Gain<br>$K') + th('moic', 'MOIC') + th('irr', 'IRR') + '</tr></thead><tbody>';
-  if (!rows.length) h += `<tr><td class="l muted" colspan="9" style="padding:12px">No investments yet.${admin ? ' Add one or upload a cashflow file.' : ''}</td></tr>`;
-  else if (!picked.length) h += `<tr><td class="l muted" colspan="9" style="padding:12px">No investments selected. Use the filters above.</td></tr>`;
-  sortByKey(picked, roiSort, ['name', 'status', 'first']).forEach(r => {
+  if (!rows.length) h += `<tr><td class="l muted" colspan="10" style="padding:12px">No investments yet.${admin ? ' Add one or upload a cashflow file.' : ''}</td></tr>`;
+  else if (!picked.length) h += `<tr><td class="l muted" colspan="10" style="padding:12px">No investments selected. Use the filters above.</td></tr>`;
+  sortByKey(picked, roiSort, ['name', 'status', 'cls', 'first']).forEach(r => {
     h += `<tr class="class-row" onclick="toggleRoi('${r.id}')" title="${r.open ? 'Hide' : 'Show'} cashflows">` +
       `<td class="l"><span class="caret">${r.open ? '▾' : '▸'}</span>${escapeHtml(r.name)} <span class="cnt">(${r.flows.length})</span></td>` +
-      `<td class="l ${r.held ? '' : 'muted'}">${r.status}</td><td>${fmtDate(r.first)}</td>` +
+      `<td class="l ${r.held ? '' : 'muted'}">${r.status}</td>` +
+      (r.cls ? `<td class="l">${escapeHtml(r.cls)}</td>`
+        : `<td class="l roi-nocls" title="${r.held ? 'Set the class on the linked account (Setup tab)' : 'Click the row to set its asset class'}">${ROI_NO_CLASS}</td>`) +
+      `<td>${fmtDate(r.first)}</td>` +
       `<td>${k(r.invested)}</td><td>${k(r.returned)}</td><td>${r.held ? k(r.current) : ''}</td>` +
       `<td class="${r.gain < 0 ? 'neg' : ''}">${k(r.gain)}</td>` +
       `<td${bg(cMoic(r.moic))}>${fmtMoic(r.moic)}</td><td${bg(cIrr(r.irr))}${irrTitle(r)}>${fmtIrr(r.irr)}</td></tr>`;
-    if (r.open) h += `<tr class="roi-detail"><td colspan="9">${roiDetailHtml(r, admin)}</td></tr>`;
+    if (r.open) h += `<tr class="roi-detail"><td colspan="10">${roiDetailHtml(r, admin)}</td></tr>`;
   });
   if (picked.length) {
     const t = selected, label = picked.length === rows.length ? 'Total, all investments' : 'Total, selected investments';
-    h += `<tr class="total"><td class="l">${label}</td><td></td><td>${fmtDate(t.first)}</td>` +
+    h += `<tr class="total"><td class="l">${label}</td><td></td><td></td><td>${fmtDate(t.first)}</td>` +
       `<td>${k(t.invested)}</td><td>${k(t.returned)}</td><td>${k(t.current)}</td>` +
       `<td class="${t.gain < 0 ? 'neg' : ''}">${k(t.gain)}</td><td>${fmtMoic(t.moic)}</td><td>${fmtIrr(t.irr)}</td></tr>`;
   }
