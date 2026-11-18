@@ -295,6 +295,11 @@
   table.wide-ed td { white-space: nowrap; }
   table.wide-ed select { width: auto; min-width: 100%; }   /* as wide as the longest option, so nothing is cut off */
   table.wide-ed td, table.wide-ed th { padding-left: 3px; padding-right: 3px; }
+  /* Frozen column titles: the accounts table scrolls inside its own window-high box (a sideways-
+     scrolling wrapper can't pin a header to the page), with the header row stuck to its top. */
+  .acct-scroll { overflow: auto; max-height: calc(100vh - 90px); border-bottom: 1px solid var(--line); }
+  #ed-accounts { border-collapse: separate; border-spacing: 0; }
+  #ed-accounts thead th { position: sticky; top: 0; z-index: 3; background: white; box-shadow: inset 0 -1px 0 var(--line); border-bottom: none; }
   table.ed input:disabled, table.ed select:disabled { background: #f6f6f6; color: #777; border-color: #e6e6e6; }
   table.ed td.calc { color: #666; font-size: 13px; text-align: right; padding-right: 10px; }
   body:not(.is-admin) .admin-only { display: none !important; }
@@ -568,7 +573,7 @@
         </p>
         <div class="acct-tools"><div id="acct-col-picker"></div>
           <span class="muted" style="font-size:12.5px">Numbers are rounded; click one to see or edit the exact value.</span></div>
-        <div class="tbl-wrap"><table class="ed wide-ed" id="ed-accounts"></table></div>
+        <div class="tbl-wrap acct-scroll"><table class="ed wide-ed" id="ed-accounts"></table></div>
         <div class="row-actions admin-only">
           <button class="btn btn-secondary btn-sm" onclick="addRow()">+ Add account</button>
         </div>
